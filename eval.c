@@ -1,11 +1,11 @@
 #include <ctype.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 enum Type {
     ATOM,
     PAIR,
-    NIL
 };
 typedef enum Type Type;
 
@@ -36,6 +36,17 @@ xalloc(size_t size)
     return p;
 }
 
+#define ERRLEN 256
+char *eprintf(char *fmt, ...)
+{
+    char *err = xalloc(ERRLEN);
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(err, ERRLEN, fmt, ap);
+    va_end(ap);
+    return err;
+}
+
 Value *
 alloc(Type t)
 {
@@ -46,17 +57,17 @@ alloc(Type t)
 
 int
 is_nil(Value *v) {
-    return v->type == NIL;
+    return v == NULL;
 }
 
 int
 is_atom(Value *v) {
-    return v->type == ATOM;
+    return !is_nil(v) && v->type == ATOM;
 }
 
 int
 is_list(Value *v) {
-    return v->type == PAIR;
+    return !is_nil(v) && v->type == PAIR;
 }
 
 Value *
@@ -138,10 +149,10 @@ skipspace(FILE *stream)
     }
 }
 
-Value *read_(FILE *stream);
+Value *read_(FILE *stream, char **errp);
 
 Value *
-readlist(FILE *stream)
+readlist(FILE *stream, char **errp)
 {
     skipspace(stream);
 
@@ -150,10 +161,10 @@ readlist(FILE *stream)
         return NULL;
     } else if (c == ')') {
         fgetc(stream);
-        return alloc(NIL);
+        return NULL;
     } else {
-        Value *car = read_(stream);
-        if (car == NULL) {
+        Value *car = read_(stream, errp);
+        if (*errp) {
             return NULL;
         }
 
@@ -162,20 +173,23 @@ readlist(FILE *stream)
         Value *cdr;
         if (peek(stream) == '.') {
             fgetc(stream);
-            cdr = read_(stream);
+            cdr = read_(stream, errp);
+            if (*errp) {
+                return NULL;
+            }
 
             skipspace(stream);
 
             if (fgetc(stream) != ')') {
-                fprintf(stderr, "expected ')'\n");
+                *errp = eprintf("expected ')'");
                 return NULL;
             }
         } else {
-            cdr = readlist(stream);
-        }
+            cdr = readlist(stream, errp);
 
-        if (cdr == NULL) {
-            return NULL;
+            if (*errp) {
+                return NULL;
+            }
         }
 
         return cons(car, cdr);
@@ -186,7 +200,7 @@ readlist(FILE *stream)
 
 // Named read_ to not conflict with read(2)
 Value *
-read_(FILE *stream)
+read_(FILE *stream, char **errp)
 {
     skipspace(stream);
 
@@ -194,7 +208,13 @@ read_(FILE *stream)
     if (c == EOF) {
         return NULL;
     } else if (c == '(') {
-        return readlist(stream);
+        Value *l = readlist(stream, errp);
+
+        if (*errp) {
+            return NULL;
+        } else {
+            return l;
+        }
     } else if (isalpha(c)) {
         char *buf = xalloc(MAX_ATOM_LEN+1);
         int i = 0;
@@ -205,12 +225,15 @@ read_(FILE *stream)
         buf[i] = '\0';
 
         if (c != EOF) {
-            ungetc(c, stream);
+            if (ungetc(c, stream) == EOF) {
+                *errp = eprintf("couldn't ungetc (read atom)");
+                return NULL;
+            }
         }
 
         return intern(buf);
     } else {
-        fprintf(stderr, "unexpected character: `%c' (%d)\n", c, c);
+        *errp = eprintf("unexpected character '%c' (%d)", c, c);
         return NULL;
     }
 }
@@ -218,12 +241,20 @@ read_(FILE *stream)
 int
 main(int argc, char *argv[])
 {
-    while (peek(stdin) != EOF) {
-        Value *v = read_(stdin);
+    char *err = NULL;
 
-        if (v != NULL) {
-            print(v);
+    while (peek(stdin) != EOF) {
+        Value *v = read_(stdin, &err);
+
+        if (err != NULL) {
+            fprintf(stderr, "error: %s\n", err);
+            free(err);
+            err = NULL;
+
+            continue;
         }
+
+        print(v);
     }
 
     return 0;
