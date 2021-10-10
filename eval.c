@@ -149,8 +149,6 @@ read0(FILE *stream, int inlist)
     if (c == EOF) {
         return NULL;
     } else if (c == '(' || inlist) {
-        printf("-- list(%d)\n", inlist);
-
         if (inlist) {
             c = ungetc(c, stream);
             if (c == EOF) {
@@ -161,32 +159,22 @@ read0(FILE *stream, int inlist)
 
         skipspace(stream);
 
-        if (peek(stream) == ')' && !inlist) {
+        if (peek(stream) == ')') {
             fgetc(stream);
             return alloc(NIL);
         }
 
-        Value *car = read0(stream, 1);
+        Value *car = read0(stream, 0);
         if (car == NULL) {
             return NULL;
         }
-
-
-        printf("-- car: ");
-        print(car);
 
         Value *cdr = read0(stream, 1);
         if (cdr == NULL) {
             return NULL;
         }
 
-        printf("-- cdr: ");
-        print(cdr);
-
         return cons(car, cdr);
-    } else if (c == ')' && inlist) {
-        printf("-- end of list\n");
-        return alloc(NIL);
     } else if (isalpha(c)) {
         char *buf = xalloc(MAX_ATOM_LEN+1);
         int i = 0;
@@ -202,7 +190,7 @@ read0(FILE *stream, int inlist)
 
         return intern(buf);
     } else {
-        fprintf(stderr, "unexpected character: `%c'\n", c);
+        fprintf(stderr, "unexpected character: `%c' (%d)\n", c, c);
         return NULL;
     }
 }
