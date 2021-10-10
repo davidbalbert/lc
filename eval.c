@@ -138,43 +138,63 @@ skipspace(FILE *stream)
     }
 }
 
-#define MAX_ATOM_LEN 256
+Value *read_(FILE *stream);
 
 Value *
-read0(FILE *stream, int inlist)
+readlist(FILE *stream)
+{
+    skipspace(stream);
+
+    int c = peek(stream);
+    if (c == EOF) {
+        return NULL;
+    } else if (c == ')') {
+        fgetc(stream);
+        return alloc(NIL);
+    } else {
+        Value *car = read_(stream);
+        if (car == NULL) {
+            return NULL;
+        }
+
+        skipspace(stream);
+
+        Value *cdr;
+        if (peek(stream) == '.') {
+            fgetc(stream);
+            cdr = read_(stream);
+
+            skipspace(stream);
+
+            if (fgetc(stream) != ')') {
+                fprintf(stderr, "expected ')'\n");
+                return NULL;
+            }
+        } else {
+            cdr = readlist(stream);
+        }
+
+        if (cdr == NULL) {
+            return NULL;
+        }
+
+        return cons(car, cdr);
+    }
+}
+
+#define MAX_ATOM_LEN 256
+
+// Named read_ to not conflict with read(2)
+Value *
+read_(FILE *stream)
 {
     skipspace(stream);
 
     int c = fgetc(stream);
     if (c == EOF) {
         return NULL;
-    } else if (c == '(' || inlist) {
-        if (inlist) {
-            c = ungetc(c, stream);
-            if (c == EOF) {
-                fprintf(stderr, "couldn't ungetc\n");
-                exit(1);
-            }
-        }
-
-        skipspace(stream);
-
-        if (peek(stream) == ')') {
-            fgetc(stream);
-            return alloc(NIL);
-        }
-
-        Value *car = read0(stream, 0);
-        if (car == NULL) {
-            return NULL;
-        }
-
-        Value *cdr = read0(stream, 1);
-        if (cdr == NULL) {
-            return NULL;
-        }
-
-        return cons(car, cdr);
+    } else if (c == '(') {
+        return readlist(stream);
     } else if (isalpha(c)) {
         char *buf = xalloc(MAX_ATOM_LEN+1);
         int i = 0;
@@ -195,21 +215,15 @@ read0(FILE *stream, int inlist)
     }
 }
 
-// Named read_ to not conflict with read(2)
-Value *
-read_(FILE *stream)
-{
-    return read0(stream, 0);
-}
-
-
 int
 main(int argc, char *argv[])
 {
-    Value *v = read_(stdin);
+    while (peek(stdin) != EOF) {
+        Value *v = read_(stdin);
 
-    if (v != NULL) {
-        print(v);
+        if (v != NULL) {
+            print(v);
+        }
     }
 
     return 0;
