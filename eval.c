@@ -8,6 +8,7 @@
 enum Type {
     ATOM,
     PAIR,
+    ERROR
 };
 typedef enum Type Type;
 
@@ -24,6 +25,7 @@ struct Value {
     union {
         char *atom;
         List list;
+        char *err;
     };
 };
 
@@ -38,24 +40,41 @@ xalloc(size_t size)
     return p;
 }
 
-#define ERRLEN 256
-char *
-xsprintf(char *fmt, ...)
-{
-    char *err = xalloc(ERRLEN);
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(err, ERRLEN, fmt, ap);
-    va_end(ap);
-    return err;
-}
-
 Value *
 alloc(Type t)
 {
     Value *v = xalloc(sizeof(Value));
     v->type = t;
     return v;
+}
+
+// char *
+// xsprintf(const char *fmt, ...)
+// {
+//     va_list ap;
+//     char *buf = xalloc(ERRLEN);
+//     va_start(ap, fmt);
+//     vsnprintf(buf, ERRLEN, fmt, ap);
+//     va_end(ap);
+//     return buf;
+// }
+
+
+#define ERRLEN 1024
+
+Value *
+errorf(char *fmt, ...)
+{
+    char *s = xalloc(ERRLEN);
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(s, ERRLEN, fmt, ap);
+    va_end(ap);
+
+    Value *err = alloc(ERROR);
+    err->err = s;
+
+    return err;
 }
 
 int
@@ -73,11 +92,16 @@ is_list(Value *v) {
     return !is_nil(v) && v->type == PAIR;
 }
 
+int
+is_err(Value *v) {
+    return !is_nil(v) && v->type == ERROR;
+}
+
 Value *
-car(Value *v, char **errp)
+car(Value *v)
 {
-    if (*errp) {
-        return NULL;
+    if (is_err(v)) {
+        return v;
     }
 
     if (is_nil(v)) {
@@ -85,16 +109,15 @@ car(Value *v, char **errp)
     } else if (is_list(v)) {
         return v->list.car;
     } else {
-        *errp = xsprintf("car: expected list");
-        return NULL;
+        return errorf("car: expected list");
     }
 }
 
 Value *
-cdr(Value *v, char **errp)
+cdr(Value *v)
 {
-    if (*errp) {
-        return NULL;
+    if (is_err(v)) {
+        return v;
     }
 
     if (is_nil(v)) {
@@ -102,44 +125,49 @@ cdr(Value *v, char **errp)
     } else if (is_list(v)) {
         return v->list.cdr;
     } else {
-        *errp = xsprintf("cdr: expected list");
-        return NULL;
+        return errorf("cdr: expected list");
     }
 }
 
 Value *
-caar(Value *v, char **errp)
+caar(Value *v)
 {
-    return car(car(v, errp), errp);
+    return car(car(v));
 }
 
 Value *
-cadr(Value *v, char **errp)
+cadr(Value *v)
 {
-    return car(cdr(v, errp), errp);
+    return car(cdr(v));
 }
 
 Value *
-cadar(Value *v, char **errp)
+cadar(Value *v)
 {
-    return car(cdr(car(v, errp), errp), errp);
+    return car(cdr(car(v)));
 }
 
 Value *
-caddr(Value *v, char **eerp)
+caddr(Value *v)
 {
-    return car(cdr(cdr(v, eerp), eerp), eerp);
+    return car(cdr(cdr(v)));
 }
 
 Value *
-caddar(Value *v, char **errp)
+caddar(Value *v)
 {
-    return car(cdr(cdr(car(v, errp), errp), errp), errp);
+    return car(cdr(cdr(car(v))));
 }
 
 Value *
 cons(Value *car, Value *cdr)
 {
+    if (is_err(car)) {
+        return car;
+    } else if (is_err(cdr)) {
+        return cdr;
+    }
+
     Value *v = alloc(PAIR);
     v->list.car = car;
     v->list.cdr = cdr;
@@ -167,7 +195,10 @@ intern(char *s)
     }
 
     Value *v = alloc(ATOM);
-    v->atom = xsprintf(s);
+
+    size_t len = strlen(s);
+    char *s1 = xalloc(len + 1);
+    v->atom = strncpy(s1, s, len);
 
     symtab = cons(v, symtab);
 
@@ -177,6 +208,11 @@ intern(char *s)
 void
 print0(Value *v, int depth)
 {
+    if (is_err(v)) {
+        fprintf(stderr, "error: %s\n", v->err);
+        return;
+    }
+
     if (is_nil(v)) {
         printf("()");
     } else if (is_atom(v)) {
@@ -236,28 +272,23 @@ skipspace(FILE *stream)
     }
 }
 
-Value *read_(FILE *stream, char **errp);
+Value *read_(FILE *stream);
 
 Value *
-readlist(FILE *stream, char **errp)
+readlist(FILE *stream)
 {
-    if (*errp) {
-        return NULL;
-    }
-
     skipspace(stream);
 
     int c = peek(stream);
     if (c == EOF) {
-        *errp = xsprintf("expected value or ')' but got EOF");
-        return NULL;
+        return errorf("expected value or ')' but got EOF");
     } else if (c == ')') {
         fgetc(stream);
         return NULL;
     } else {
-        Value *car = read_(stream, errp);
-        if (*errp) {
-            return NULL;
+        Value *car = read_(stream);
+        if (is_err(car)) {
+            return car;
         }
 
         skipspace(stream);
@@ -265,22 +296,21 @@ readlist(FILE *stream, char **errp)
         Value *cdr;
         if (peek(stream) == '.') {
             fgetc(stream);
-            cdr = read_(stream, errp);
-            if (*errp) {
-                return NULL;
+            cdr = read_(stream);
+            if (is_err(cdr)) {
+                return cdr;
             }
 
             skipspace(stream);
 
             if (fgetc(stream) != ')') {
-                *errp = xsprintf("expected ')'");
-                return NULL;
+                return errorf("expected ')'");
             }
         } else {
-            cdr = readlist(stream, errp);
+            cdr = readlist(stream);
 
-            if (*errp) {
-                return NULL;
+            if (is_err(cdr)) {
+                return cdr;
             }
         }
 
@@ -292,25 +322,15 @@ readlist(FILE *stream, char **errp)
 
 // Named read_ to not conflict with read(2)
 Value *
-read_(FILE *stream, char **errp)
+read_(FILE *stream)
 {
-    if (*errp) {
-        return NULL;
-    }
-
     skipspace(stream);
 
     int c = fgetc(stream);
     if (c == EOF) {
         return NULL;
     } else if (c == '(') {
-        Value *l = readlist(stream, errp);
-
-        if (*errp) {
-            return NULL;
-        } else {
-            return l;
-        }
+        return readlist(stream);
     } else if (isalpha(c)) {
         char *buf = xalloc(MAX_ATOM_LEN+1);
         int i = 0;
@@ -322,48 +342,37 @@ read_(FILE *stream, char **errp)
 
         if (c != EOF) {
             if (ungetc(c, stream) == EOF) {
-                *errp = xsprintf("couldn't ungetc (read atom)");
-                return NULL;
+                return errorf("couldn't ungetc (read atom)");
             }
         }
 
         return intern(buf);
     } else {
-        *errp = xsprintf("unexpected character '%c' (%d)", c, c);
-        return NULL;
+        return errorf("unexpected character '%c' (%d)", c, c);
     }
 }
 
 Value *
-assoc(Value *v, Value *l, char **errp)
+assoc(Value *v, Value *l)
 {
-    if (*errp) {
-        return NULL;
+    if (is_err(v)) {
+        return v;
+    } else if (is_err(l)) {
+        return l;
     }
 
     if (!is_list(l) && !is_nil(l)) {
-        *errp = xsprintf("assoc: expected list");
-        return NULL;
+        return errorf("assoc: expected list");
     }
 
     while (!is_nil(l)) {
-        Value *pair = car(l, errp);
-        if (*errp) {
-            return NULL;
+        if (caar(l) == v) {
+            return cadar(l);
         }
 
-        Value *key = car(pair, errp);
-        if (*errp) {
-            return NULL;
-        }
-
-        if (key == v) {
-            return cadr(pair, errp);
-        }
-
-        l = cdr(l, errp);
-        if (*errp) {
-            return NULL;
+        l = cdr(l);
+        if (is_err(l)) {
+            return l;
         }
     }
 
@@ -371,204 +380,154 @@ assoc(Value *v, Value *l, char **errp)
 }
 
 Value *
-append(Value *x, Value *y, char **errp)
+append(Value *x, Value *y)
 {
-    if (*errp) {
-        return NULL;
+    if (is_err(x)) {
+        return x;
+    } else if (is_err(y)) {
+        return y;
     }
 
     if (is_nil(x)) {
         return y;
     } else {
-        Value *a = car(x, errp);
-        if (*errp) {
-            return NULL;
-        }
-
-        Value *d = append(cdr(x, errp), y, errp);
-        if (*errp) {
-            return NULL;
-        }
-
-        return cons(car(x, errp), d);
+        return cons(car(x), append(cdr(x), y));
     }
 }
 
 Value *
-zip(Value *x, Value *y, char **errp)
+zip(Value *x, Value *y)
 {
-    if (*errp) {
-        return NULL;
+    if (is_err(x)) {
+        return x;
+    } else if (is_err(y)) {
+        return y;
     }
 
     if (is_nil(x) && is_nil(y)) {
         return NULL;
     } else if (is_list(x) && is_list(y)) {
-        Value *a = car(x, errp);
-        if (*errp) {
-            return NULL;
-        }
-
-        Value *b = car(y, errp);
-        if (*errp) {
-            return NULL;
-        }
-
-        Value *d = zip(cdr(x, errp), cdr(y, errp), errp);
-        if (*errp) {
-            return NULL;
-        }
-
-        return cons(cons(a, cons(b, NULL)), d);
+        return cons(cons(car(x), cons(car(y), NULL)), zip(cdr(x), cdr(y)));
     } else if (is_nil(x) || is_nil(y)){
-        *errp = xsprintf("zip: lists not the same length");
-        return NULL;
+        return errorf("zip: lists not the same length");
     } else {
-        *errp = xsprintf("zip: expected list");
-        return NULL;
+        return errorf("zip: expected list");
     }
 }
 
-Value *eval(Value *v, Value *env, char **errp);
+Value *eval(Value *v, Value *env);
 
 Value *
-evcon(Value *conditions, Value *env, char **errp)
+evcon(Value *conditions, Value *env)
 {
-    if (*errp) {
-        return NULL;
+    if (is_err(conditions)) {
+        return conditions;
+    } else if (is_err(env)) {
+        return env;
     }
 
     if (!is_list(conditions) && !is_nil(conditions)) {
-        *errp = xsprintf("evcon: expected list");
-        return NULL;
+        return errorf("evcon: expected list");
     }
 
-    if (eval(caar(conditions, errp), env, errp)) {
-        return eval(cadar(conditions, errp), env, errp);
+    if (eval(caar(conditions), env)) {
+        return eval(cadar(conditions), env);
     } else {
-        return evcon(cdr(conditions, errp), env, errp);
+        return evcon(cdr(conditions), env);
     }
 }
 
 Value *
-evlis(Value *params, Value *env, char **errp)
+evlis(Value *params, Value *env)
 {
-    if (*errp) {
-        return NULL;
+    if (is_err(params)) {
+        return params;
+    } else if (is_err(env)) {
+        return env;
     }
 
     if (!is_list(params) && !is_nil(params)) {
-        *errp = xsprintf("evlis: expected list");
-        return NULL;
+        return errorf("evlis: expected list");
     }
 
     if (is_nil(params)) {
         return NULL;
     } else {
-        Value *a = eval(car(params, errp), env, errp);
-        if (*errp) {
-            return NULL;
-        }
-
-        Value *d = evlis(cdr(params, errp), env, errp);
-        if (*errp) {
-            return NULL;
-        }
-
-        return cons(a, d);
+        return cons(eval(car(params), env), evlis(cdr(params), env));
     }
 }
 
 Value *
-eval(Value *v, Value *env, char **errp)
+eq(Value *x, Value *y)
 {
-    if (*errp) {
+    if (is_err(x)) {
+        return x;
+    } else if (is_err(y)) {
+        return y;
+    }
+
+    if (x == y) {
+        return intern("t");
+    } else {
         return NULL;
+    }
+}
+
+Value *
+eval(Value *v, Value *env)
+{
+    if (is_err(v)) {
+        return v;
+    } else if (is_err(env)) {
+        return env;
     }
 
     if (is_atom(v)) {
-        Value *l = assoc(v, env, errp);
-        if (*errp) {
-            return NULL;
-        }
+        Value *res = assoc(v, env);
 
-        if (l) {
-            return l;
+        if (res) {
+            return res;
         } else {
-            *errp = xsprintf("unbound variable: %s", v->atom);
-            return NULL;
+            return errorf("unbound variable: %s", v->atom);
         }
-    } else if (is_atom(car(v, errp))) {
-        if (car(v, errp) == intern("quote")) {
-            return cadr(v, errp);
-        } else if (car(v, errp) == intern("atom")) {
-            return is_atom(eval(cadr(v, errp), env, errp)) ? intern("t") : NULL;
-        } else if (car(v, errp) == intern("eq")) {
-            Value *a = eval(cadr(v, errp), env, errp);
-            Value *b = eval(caddr(v, errp), env, errp);
-
-            if (*errp) {
-                return NULL;
-            }
-
-            return a == b ? intern("t") : NULL;
-        } else if (car(v, errp) == intern("car")) {
-            return car(eval(cadr(v, errp), env, errp), errp);
-        } else if (car(v, errp) == intern("cdr")) {
-            return cdr(eval(cadr(v, errp), env, errp), errp);
-        } else if (car(v, errp) == intern("cons")) {
-            Value *a = eval(cadr(v, errp), env, errp);
-            Value *b = eval(caddr(v, errp), env, errp);
-            if (*errp) {
-                return NULL;
-            }
-
-            return cons(a, b);
-        } else if (car(v, errp) == intern("cond")) {
-            return evcon(cdr(v, errp), env, errp);
+    } else if (is_atom(car(v))) {
+        if (car(v) == intern("quote")) {
+            return cadr(v);
+        } else if (car(v) == intern("atom")) {
+            return is_atom(eval(cadr(v), env)) ? intern("t") : NULL;
+        } else if (car(v) == intern("eq")) {
+            return eq(eval(cadr(v), env), eval(caddr(v), env));
+        } else if (car(v) == intern("car")) {
+            return car(eval(cadr(v), env));
+        } else if (car(v) == intern("cdr")) {
+            return cdr(eval(cadr(v), env));
+        } else if (car(v) == intern("cons")) {
+            return cons(eval(cadr(v), env), eval(caddr(v), env));
+        } else if (car(v) == intern("cond")) {
+            return evcon(cdr(v), env);
         } else {
-            Value *f = assoc(car(v, errp), env, errp);
-            if (*errp) {
-                return NULL;
+            Value *f = assoc(car(v), env);
+
+            if (is_err(f)) {
+                return f;
+            } else if (!is_list(f)) {
+                return errorf("unbound function: %s", car(v)->atom);
             }
 
-            if (!is_list(f)) {
-                *errp = xsprintf("unbound function: %s", car(v, errp)->atom);
-                return NULL;
-            }
-
-            return eval(cons(f, cdr(v, errp)), env, errp);
+            return eval(cons(f, cdr(v)), env);
         }
-    } else if (caar(v, errp) == intern("label")) {
+    } else if (caar(v) == intern("label")) {
         return eval(
-            cons(caddar(v, errp), cdr(v, errp)),
-            cons(cons(cadar(v, errp), cons(car(v, errp), NULL)), env),
-            errp);
-    } else if (caar(v, errp) == intern("lambda")) {
-        Value *bindings = zip(cadar(v, errp), evlis(cdr(v, errp), env, errp), errp);
-        if (*errp) {
-            return NULL;
-        }
+            cons(caddar(v), cdr(v)),
+            cons(cons(cadar(v), cons(car(v), NULL)), env));
+    } else if (caar(v) == intern("lambda")) {
+        Value *bindings = zip(cadar(v), evlis(cdr(v), env));
 
-        Value *env1 = append(bindings, env, errp);
-        if (*errp) {
-            return NULL;
-        }
-
-        return eval(caddar(v, errp), env1, errp);
+        return eval(caddar(v), append(bindings, env));
     }
 
-    print(v);
-    *errp = xsprintf("eval: unhandled case");
-    return NULL;
-}
-
-void
-handle(char **errp)
-{
-    fprintf(stderr, "error: %s\n", *errp);
-    free(*errp);
-    *errp = NULL;
+    // print(v);
+    return errorf("eval: unhandled case");
 }
 
 int
@@ -582,20 +541,8 @@ main(int argc, char *argv[])
     env = cons(cons(intern("cadr"), cons(cons(intern("lambda"), cons(cons(intern("l"), NULL), cons(cons(intern("car"), cons(cons(intern("cdr"), cons(intern("l"), NULL)), NULL)), NULL))), NULL)), env);
 
     while (peek(stdin) != EOF) {
-        Value *v = read_(stdin, &err);
-
-        if (err != NULL) {
-            handle(&err);
-            continue;
-        }
-
-        v = eval(v, env, &err);
-
-        if (err != NULL) {
-            handle(&err);
-            continue;
-        }
-
+        Value *v = read_(stdin);
+        v = eval(v, env);
         print(v);
     }
     return 0;
