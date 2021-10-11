@@ -1,3 +1,6 @@
 .vscode
 *.dSYM
 eval
+bootstrap
+test
+test.c
