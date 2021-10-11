@@ -48,18 +48,6 @@ alloc(Type t)
     return v;
 }
 
-// char *
-// xsprintf(const char *fmt, ...)
-// {
-//     va_list ap;
-//     char *buf = xalloc(ERRLEN);
-//     va_start(ap, fmt);
-//     vsnprintf(buf, ERRLEN, fmt, ap);
-//     va_end(ap);
-//     return buf;
-// }
-
-
 #define ERRLEN 1024
 
 Value *
