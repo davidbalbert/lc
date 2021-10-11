@@ -85,12 +85,12 @@ is_err(Value *v) {
     return !is_nil(v) && v->type == ERROR;
 }
 
+#define check(x) do { if (is_err(x)) return x; } while (0)
+
 Value *
 car(Value *v)
 {
-    if (is_err(v)) {
-        return v;
-    }
+    check(v);
 
     if (is_nil(v)) {
         return NULL;
@@ -104,9 +104,7 @@ car(Value *v)
 Value *
 cdr(Value *v)
 {
-    if (is_err(v)) {
-        return v;
-    }
+    check(v);
 
     if (is_nil(v)) {
         return NULL;
@@ -150,11 +148,8 @@ caddar(Value *v)
 Value *
 cons(Value *car, Value *cdr)
 {
-    if (is_err(car)) {
-        return car;
-    } else if (is_err(cdr)) {
-        return cdr;
-    }
+    check(car);
+    check(cdr);
 
     Value *v = alloc(PAIR);
     v->list.car = car;
@@ -343,11 +338,8 @@ read_(FILE *stream)
 Value *
 assoc(Value *v, Value *l)
 {
-    if (is_err(v)) {
-        return v;
-    } else if (is_err(l)) {
-        return l;
-    }
+    check(v);
+    check(l);
 
     if (!is_list(l) && !is_nil(l)) {
         return errorf("assoc: expected list");
@@ -370,11 +362,8 @@ assoc(Value *v, Value *l)
 Value *
 append(Value *x, Value *y)
 {
-    if (is_err(x)) {
-        return x;
-    } else if (is_err(y)) {
-        return y;
-    }
+    check(x);
+    check(y);
 
     if (is_nil(x)) {
         return y;
@@ -386,11 +375,8 @@ append(Value *x, Value *y)
 Value *
 zip(Value *x, Value *y)
 {
-    if (is_err(x)) {
-        return x;
-    } else if (is_err(y)) {
-        return y;
-    }
+    check(x);
+    check(y);
 
     if (is_nil(x) && is_nil(y)) {
         return NULL;
@@ -408,11 +394,8 @@ Value *eval(Value *v, Value *env);
 Value *
 evcon(Value *conditions, Value *env)
 {
-    if (is_err(conditions)) {
-        return conditions;
-    } else if (is_err(env)) {
-        return env;
-    }
+    check(conditions);
+    check(env);
 
     if (!is_list(conditions) && !is_nil(conditions)) {
         return errorf("evcon: expected list");
@@ -428,11 +411,8 @@ evcon(Value *conditions, Value *env)
 Value *
 evlis(Value *params, Value *env)
 {
-    if (is_err(params)) {
-        return params;
-    } else if (is_err(env)) {
-        return env;
-    }
+    check(params);
+    check(env);
 
     if (!is_list(params) && !is_nil(params)) {
         return errorf("evlis: expected list");
@@ -448,11 +428,8 @@ evlis(Value *params, Value *env)
 Value *
 eq(Value *x, Value *y)
 {
-    if (is_err(x)) {
-        return x;
-    } else if (is_err(y)) {
-        return y;
-    }
+    check(x);
+    check(y);
 
     if (x == y) {
         return intern("t");
@@ -464,11 +441,8 @@ eq(Value *x, Value *y)
 Value *
 eval(Value *v, Value *env)
 {
-    if (is_err(v)) {
-        return v;
-    } else if (is_err(env)) {
-        return env;
-    }
+    check(v);
+    check(env);
 
     if (is_atom(v)) {
         Value *res = assoc(v, env);
