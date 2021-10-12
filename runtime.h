@@ -1,4 +1,5 @@
 enum Type {
+    SYM,
     INT,
     LIST
 };
@@ -15,6 +16,7 @@ struct List {
 struct Value {
     Type type;
     union {
+        char *sym;
         int n;
         List list;
     };

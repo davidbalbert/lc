@@ -2,6 +2,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "runtime.h"
 
@@ -105,8 +106,14 @@ readlist(FILE *stream, int first)
     }
 }
 
+int
+is_symchar(int c)
+{
+    return !isspace(c) && c != '(' && c != ')' && c != '.';
+}
 
-#define INT_CHARLEN 10
+#define MAX_INTLEN 10
+#define MAX_SYMLEN 1024
 
 Value *
 read1(FILE *stream)
@@ -119,26 +126,47 @@ read1(FILE *stream)
     } else if (c == '(') {
         return readlist(stream, 1);
     } else if (isdigit(c)) {
-        char buf[INT_CHARLEN+1];
+        char buf[MAX_INTLEN+1];
 
-        int i = 0;
-
-        do {
-            buf[i++] = (char)c;
+        int i;
+        for (i = 0; isdigit(c); i++) {
+            buf[i] = c;
             c = fgetc(stream);
 
-            if (i == INT_CHARLEN) {
+            if (i == MAX_INTLEN) {
                 fprintf(stderr, "integer too long\n");
                 exit(1);
             }
-        } while (c != EOF && isdigit(c));
-
-        xungetc(c, stream);
+        }
 
         buf[i] = '\0';
+        xungetc(c, stream);
 
         Value *v = alloc(INT);
         v->n = atoi(buf);
+        return v;
+    } else if (is_symchar(c)) {
+        char buf[MAX_SYMLEN+1];
+
+        int i;
+        for (i = 0; is_symchar(c); i++) {
+            buf[i] = c;
+            c = fgetc(stream);
+
+            if (i == MAX_SYMLEN) {
+                fprintf(stderr, "symbol too long\n");
+                exit(1);
+            }
+        }
+
+        buf[i] = '\0';
+        xungetc(c, stream);
+
+        int len = strlen(buf);
+
+        Value *v = alloc(SYM);
+        v->sym = xalloc(len+1);
+        strncpy(v->sym, buf, len);
         return v;
     } else {
         fprintf(stderr, "unexpected character: %c\n", c);
