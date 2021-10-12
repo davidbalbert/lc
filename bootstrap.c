@@ -72,37 +72,35 @@ skipspace(FILE *stream)
 Value *read1(FILE *stream);
 
 Value *
-readlist(FILE *stream)
+readlist(FILE *stream, int first)
 {
     skipspace(stream);
 
     int c = peek(stream);
+
     if (c == EOF) {
         fprintf(stderr, "expected value or ')' but got EOF\n");
         exit(1);
     } else if (c == ')') {
+        // TODO: error handling
         fgetc(stream);
         return NULL;
-    } else {
-        Value *car = read1(stream);
+    } else if (c == '.' && !first) {
+        // TODO: error handling
+        c = fgetc(stream);
 
+        Value *cdr = read1(stream);
         skipspace(stream);
-
-        Value *cdr;
-        if (peek(stream) == '.') {
-            fgetc(stream);
-            cdr = read1(stream);
-
-            skipspace(stream);
-
-            if (fgetc(stream) != ')') {
-                fprintf(stderr, "expected ')'\n");
-                exit(1);
-            }
-        } else {
-            cdr = readlist(stream);
+        int c = fgetc(stream);
+        if (c != ')') {
+            fprintf(stderr, "expected ')' but got '%c'\n", c);
+            exit(1);
         }
 
+        return cdr;
+    } else {
+        Value *car = read1(stream);
+        Value *cdr = readlist(stream, 0);
         return cons(car, cdr);
     }
 }
@@ -119,7 +117,7 @@ read1(FILE *stream)
     if (c == EOF) {
         return NULL;
     } else if (c == '(') {
-        return readlist(stream);
+        return readlist(stream, 1);
     } else if (isdigit(c)) {
         char buf[INT_CHARLEN+1];
 
@@ -144,10 +142,8 @@ read1(FILE *stream)
         return v;
     } else {
         fprintf(stderr, "unexpected character: %c\n", c);
-        return NULL;
+        exit(1);
     }
-
-    return NULL;
 }
 
 void
