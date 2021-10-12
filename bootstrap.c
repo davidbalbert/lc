@@ -3,25 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-enum Type {
-    INT,
-};
-typedef enum Type Type;
-
-typedef struct Value Value;
-typedef struct List List;
-
-struct List {
-    Value *car;
-    Value *cdr;
-};
-
-struct Value {
-    Type type;
-    union {
-        int n;
-    };
-};
+#include "runtime.h"
 
 void *
 xalloc(size_t size)
@@ -42,6 +24,15 @@ alloc(Type t)
     return v;
 }
 
+Value *
+cons(Value *car, Value *cdr)
+{
+    Value *v = alloc(LIST);
+    v->list.car = car;
+    v->list.cdr = cdr;
+    return v;
+}
+
 int
 peek(FILE *stream)
 {
@@ -58,6 +49,17 @@ peek(FILE *stream)
     return c;
 }
 
+int
+xungetc(int c, FILE *stream)
+{
+    int res = ungetc(c, stream);
+    if (res == EOF) {
+        fprintf(stderr, "couldn't ungetc\n");
+        exit(1);
+    }
+    return res;
+}
+
 void
 skipspace(FILE *stream)
 {
@@ -66,6 +68,45 @@ skipspace(FILE *stream)
         fgetc(stream);
     }
 }
+
+Value *read1(FILE *stream);
+
+Value *
+readlist(FILE *stream)
+{
+    skipspace(stream);
+
+    int c = peek(stream);
+    if (c == EOF) {
+        fprintf(stderr, "expected value or ')' but got EOF\n");
+        exit(1);
+    } else if (c == ')') {
+        fgetc(stream);
+        return NULL;
+    } else {
+        Value *car = read1(stream);
+
+        skipspace(stream);
+
+        Value *cdr;
+        if (peek(stream) == '.') {
+            fgetc(stream);
+            cdr = read1(stream);
+
+            skipspace(stream);
+
+            if (fgetc(stream) != ')') {
+                fprintf(stderr, "expected ')'\n");
+                exit(1);
+            }
+        } else {
+            cdr = readlist(stream);
+        }
+
+        return cons(car, cdr);
+    }
+}
+
 
 #define INT_CHARLEN 10
 
@@ -77,6 +118,8 @@ read1(FILE *stream)
     int c = fgetc(stream);
     if (c == EOF) {
         return NULL;
+    } else if (c == '(') {
+        return readlist(stream);
     } else if (isdigit(c)) {
         char buf[INT_CHARLEN+1];
 
@@ -91,6 +134,8 @@ read1(FILE *stream)
                 exit(1);
             }
         } while (c != EOF && isdigit(c));
+
+        xungetc(c, stream);
 
         buf[i] = '\0';
 
@@ -126,6 +171,7 @@ compile(Value *v)
 
 int main(int argc, char const *argv[])
 {
-    compile(read1(stdin));
+    // compile(read1(stdin));
+    print(read1(stdin));
     return 0;
 }
