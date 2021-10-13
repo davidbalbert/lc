@@ -9,4 +9,4 @@ fi
 
 FNAME=$(basename $1 .lisp)
 
-make bootstrap && $(./bootstrap < $FNAME.lisp > $FNAME.c) && make $FNAME
+make bootstrap && $(./bootstrap < $FNAME.lisp > $FNAME.c) && make runtime.o && echo cc $FNAME.c runtime.o -o $FNAME && cc $FNAME.c runtime.o -o $FNAME

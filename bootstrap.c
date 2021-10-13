@@ -181,6 +181,20 @@ reverse(Value *list)
     return res;
 }
 
+int
+contains(Value *list, Value *v)
+{
+    type_assert(list, LIST, NULL);
+
+    while (list != NULL) {
+        if (car(list) == v) {
+            return 1;
+        }
+        list = cdr(list);
+    }
+    return 0;
+}
+
 Value *
 readall(FILE *stream)
 {
@@ -195,6 +209,8 @@ readall(FILE *stream)
     return reverse(res);
 }
 
+Value *globals = NULL;
+
 void
 codegen_global_decl(Value *expr)
 {
@@ -202,6 +218,7 @@ codegen_global_decl(Value *expr)
         Value *sym = cadr(expr);
         type_assert(sym, SYM, expr);
 
+        globals = cons(sym, globals);
         printf("Value *%s;\n", sym->sym);
     }
 }
@@ -242,12 +259,16 @@ codegen_global_init(Value *expr)
     printf("    %s = ", sym->sym);
 
     if (is_sym(val)) {
-        fprintf(stderr, "undefined variable %s\n", val->sym);
-        exit(1);
+        if (contains(globals, val)) {
+            printf("%s", val->sym);
+        } else {
+            fprintf(stderr, "undefined variable: %s\n", val->sym);
+            exit(1);
+        }
     } else if (is_list(val) && car(val) == intern("quote")) {
         codegen_value(cadr(val));
     } else if (is_list(val)) {
-        fprintf(stderr, "undefined function %s\n", sym->sym);
+        fprintf(stderr, "undefined function: %s\n", sym->sym);
         exit(1);
     } else {
         codegen_value(val);
