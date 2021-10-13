@@ -27,12 +27,10 @@ void type_assert(Value *v, Type t, Value *context)
     if (v->type != t) {
         if (context) {
             fprint(stderr, context);
-            fprintf(stderr, "\n");
         }
 
-        fprintf(stderr, "expected %s but got", type_name(t));
+        fprintf(stderr, "expected %s but got ", type_name(t));
         fprint(stderr, v);
-        fprintf(stderr, "\n");
         exit(1);
     }
 }
@@ -198,52 +196,39 @@ readall(FILE *stream)
 }
 
 void
-compile_value(Value *v)
+codegen_global_decl(Value *expr)
 {
-    switch (v->type) {
-    case INT:
+    if (is_list(expr) && car(expr) == intern("def")) {
+        Value *sym = cadr(expr);
+        type_assert(sym, SYM, expr);
+
+        printf("Value *%s;\n", sym->sym);
+    }
+}
+
+void
+codegen_value(Value *v)
+{
+    if (is_nil(v)) {
+        printf("NULL");
+    } else if (is_int(v)) {
         printf("integer(%d)", v->n);
-        break;
-    case SYM:
+    } else if (is_sym(v)) {
         printf("intern(\"%s\")", v->sym);
-        break;
-    case LIST:
-        fprintf(stderr, "can't compile lists yet");
-        break;
-    default:
+    } else if (is_list(v)) {
+        printf("cons(");
+        codegen_value(car(v));
+        printf(", ");
+        codegen_value(cdr(v));
+        printf(")");
+    } else {
         fprintf(stderr, "unknown type: %d\n", v->type);
         exit(1);
     }
 }
 
-int
-can_statically_initialize(Value *v)
-{
-    return is_nil(v) || is_int(v);
-}
-
 void
-compile_static_global(Value *name, Value *v)
-{
-    if (is_nil(v)) {
-        printf("Value *%s = NULL;\n", name->sym);
-    } else if (is_int(v)) {
-        printf("Value _%s = { .type = INT, .n = %d };\n", name->sym, v->n);
-        printf("Value *%s = &_%s;\n", name->sym, name->sym);
-    } else {
-        fprintf(stderr, "can't statically initialize %s\n", type_name(v->type));
-        exit(1);
-    }
-}
-
-void
-compile_lazy_global(Value *name)
-{
-    printf("Value *%s = NULL;\n", name->sym);
-}
-
-void
-compile_global(Value *expr)
+codegen_global_init(Value *expr)
 {
     if (is_list(expr) && car(expr) == intern("def")) {
         Value *sym = cadr(expr);
@@ -251,26 +236,22 @@ compile_global(Value *expr)
 
         type_assert(sym, SYM, expr);
 
-        if (can_statically_initialize(val)) {
-            compile_static_global(sym, val);
-        } else {
-            compile_lazy_global(sym);
-        }
+        printf("    %s = ", sym->sym);
+        codegen_value(val);
+        printf(";\n");
     }
 }
 
 void
-compile(Value *exprs)
+codegen(Value *exprs)
 {
     printf("#include <stdio.h>\n");
     printf("\n");
     printf("#include \"runtime.h\"\n");
     printf("\n");
 
-    Value *l = exprs;
-    while (l != NULL) {
-        compile_global(car(l));
-        l = cdr(l);
+    for (Value *l = exprs; l != NULL; l = cdr(l)) {
+        codegen_global_decl(car(l));
     }
 
     printf("\n");
@@ -278,12 +259,17 @@ compile(Value *exprs)
     printf("int\n");
     printf("main(int argc, char *argv[])\n");
     printf("{\n");
+
+    for (Value *l = exprs; l != NULL; l = cdr(l)) {
+        codegen_global_init(car(l));
+    }
+
     printf("    return 0;\n");
     printf("}\n");
 }
 
 int main(int argc, char const *argv[])
 {
-    compile(readall(stdin));
+    codegen(readall(stdin));
     return 0;
 }
