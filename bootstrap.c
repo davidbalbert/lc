@@ -6,32 +6,35 @@
 
 #include "runtime.h"
 
-void *
-xalloc(size_t size)
+char *
+type_name(Type t)
 {
-    void *p = calloc(1, size);
-    if (p == NULL) {
-        fprintf(stderr, "out of memory\n");
+    switch (t) {
+    case INT:
+        return "int";
+    case SYM:
+        return "symbol";
+    case LIST:
+        return "list";
+    default:
+        fprintf(stderr, "unknown type: %d\n", t);
         exit(1);
     }
-    return p;
 }
 
-Value *
-alloc(Type t)
+void type_assert(Value *v, Type t, Value *context)
 {
-    Value *v = xalloc(sizeof(Value));
-    v->type = t;
-    return v;
-}
+    if (v->type != t) {
+        if (context) {
+            fprint(stderr, context);
+            fprintf(stderr, "\n");
+        }
 
-Value *
-cons(Value *car, Value *cdr)
-{
-    Value *v = alloc(LIST);
-    v->list.car = car;
-    v->list.cdr = cdr;
-    return v;
+        fprintf(stderr, "expected %s but got", type_name(t));
+        fprint(stderr, v);
+        fprintf(stderr, "\n");
+        exit(1);
+    }
 }
 
 int
@@ -142,9 +145,7 @@ read1(FILE *stream)
         buf[i] = '\0';
         xungetc(c, stream);
 
-        Value *v = alloc(INT);
-        v->n = atoi(buf);
-        return v;
+        return integer(atoi(buf));
     } else if (is_symchar(c)) {
         char buf[MAX_SYMLEN+1];
 
@@ -162,40 +163,127 @@ read1(FILE *stream)
         buf[i] = '\0';
         xungetc(c, stream);
 
-        int len = strlen(buf);
-
-        Value *v = alloc(SYM);
-        v->sym = xalloc(len+1);
-        strncpy(v->sym, buf, len);
-        return v;
+        return intern(buf);
     } else {
         fprintf(stderr, "unexpected character: %c\n", c);
         exit(1);
     }
 }
 
-void
-compile(Value *v)
+Value *
+reverse(Value *list)
 {
-    if (v == NULL) {
-        fprintf(stderr, "compile: null value\n");
-        return;
+    type_assert(list, LIST, NULL);
+
+    Value *res = NULL;
+    while (list != NULL) {
+        res = cons(car(list), res);
+        list = cdr(list);
+    }
+    return res;
+}
+
+Value *
+readall(FILE *stream)
+{
+    Value *res = NULL;
+
+    while (peek(stream) != EOF) {
+        skipspace(stream);
+        Value *val = read1(stream);
+        res = cons(val, res);
     }
 
-    assert(v->type == INT);
+    return reverse(res);
+}
 
+void
+compile_value(Value *v)
+{
+    switch (v->type) {
+    case INT:
+        printf("integer(%d)", v->n);
+        break;
+    case SYM:
+        printf("intern(\"%s\")", v->sym);
+        break;
+    case LIST:
+        fprintf(stderr, "can't compile lists yet");
+        break;
+    default:
+        fprintf(stderr, "unknown type: %d\n", v->type);
+        exit(1);
+    }
+}
+
+int
+can_statically_initialize(Value *v)
+{
+    return is_nil(v) || is_int(v);
+}
+
+void
+compile_static_global(Value *name, Value *v)
+{
+    if (is_nil(v)) {
+        printf("Value *%s = NULL;\n", name->sym);
+    } else if (is_int(v)) {
+        printf("Value _%s = { .type = INT, .n = %d };\n", name->sym, v->n);
+        printf("Value *%s = &_%s;\n", name->sym, name->sym);
+    } else {
+        fprintf(stderr, "can't statically initialize %s\n", type_name(v->type));
+        exit(1);
+    }
+}
+
+void
+compile_lazy_global(Value *name)
+{
+    printf("Value *%s = NULL;\n", name->sym);
+}
+
+void
+compile_global(Value *expr)
+{
+    if (is_list(expr) && car(expr) == intern("def")) {
+        Value *sym = cadr(expr);
+        Value *val = caddr(expr);
+
+        type_assert(sym, SYM, expr);
+
+        if (can_statically_initialize(val)) {
+            compile_static_global(sym, val);
+        } else {
+            compile_lazy_global(sym);
+        }
+    }
+}
+
+void
+compile(Value *exprs)
+{
     printf("#include <stdio.h>\n");
     printf("\n");
+    printf("#include \"runtime.h\"\n");
+    printf("\n");
+
+    Value *l = exprs;
+    while (l != NULL) {
+        compile_global(car(l));
+        l = cdr(l);
+    }
+
+    printf("\n");
+
     printf("int\n");
     printf("main(int argc, char *argv[])\n");
     printf("{\n");
-    printf("    return %d;\n", v->n);
+    printf("    return 0;\n");
     printf("}\n");
 }
 
 int main(int argc, char const *argv[])
 {
-    // compile(read1(stdin));
-    print(read1(stdin));
+    compile(readall(stdin));
     return 0;
 }

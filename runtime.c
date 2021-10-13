@@ -1,80 +1,181 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "runtime.h"
 
-static int
+void *
+xalloc(size_t size)
+{
+    void *p = calloc(1, size);
+    if (p == NULL) {
+        fprintf(stderr, "out of memory\n");
+        exit(1);
+    }
+    return p;
+}
+
+static Value *
+alloc(Type t)
+{
+    Value *v = xalloc(sizeof(Value));
+    v->type = t;
+    return v;
+}
+
+Value *symtab = NULL;
+
+Value *
+intern(char *s)
+{
+    Value *l = symtab;
+
+    assert(is_nil(l) || is_list(l));
+
+    while (!is_nil(l)) {
+        Value *sym = l->list.car;
+        assert(is_sym(sym));
+
+        if (strcmp(sym->sym, s) == 0) {
+            return sym;
+        }
+
+        l = l->list.cdr;
+    }
+
+    size_t len = strlen(s);
+
+    Value *v = alloc(SYM);
+    v->sym = xalloc(len + 1);
+    strncpy(v->sym, s, len);
+
+    symtab = cons(v, symtab);
+
+    return v;
+}
+
+Value *
+integer(int n)
+{
+    Value *v = alloc(INT);
+    v->n = n;
+    return v;
+}
+
+Value *
+cons(Value *car, Value *cdr)
+{
+    Value *v = alloc(LIST);
+    v->list.car = car;
+    v->list.cdr = cdr;
+    return v;
+}
+
+int
 is_nil(Value *v)
 {
     return v == NULL;
 }
 
-static int
+int
 is_int(Value *v)
 {
     return v != NULL && v->type == INT;
 }
 
-static int
+int
 is_sym(Value *v)
 {
     return v != NULL && v->type == SYM;
 }
 
-static int
+int
 is_list(Value *v)
 {
     return v != NULL && v->type == LIST;
 }
 
-static void print0(Value *v, int nested);
+static void fprint0(FILE *stream, Value *v, int nested);
 
 static void
-printlist(Value *v) {
+printlist(FILE *stream, Value *v) {
     assert(is_list(v));
 
-    printf("(");
-    print0(v->list.car, 1);
+    fprintf(stream, "(");
+    fprint0(stream, v->list.car, 1);
 
     Value *cdr = v->list.cdr;
     while (is_list(cdr)) {
-        printf(" ");
-        print0(cdr->list.car, 1);
+        fprintf(stream, " ");
+        fprint0(stream, cdr->list.car, 1);
         cdr = cdr->list.cdr;
     }
 
     if (!is_nil(cdr)) {
-        printf(" . ");
-        print0(cdr, 1);
+        fprintf(stream, " . ");
+        fprint0(stream, cdr, 1);
     }
 
-    printf(")");
+    fprintf(stream, ")");
 }
 
 static void
-print0(Value *v, int nested)
+fprint0(FILE *stream, Value *v, int nested)
 {
     if (is_nil(v)) {
-        printf("()");
+        fprintf(stream, "()");
     } else if (is_int(v)) {
-        printf("%d", v->n);
+        fprintf(stream, "%d", v->n);
     } else if (is_sym(v)) {
-        printf("%s", v->sym);
+        fprintf(stream, "%s", v->sym);
     } else if (is_list(v)) {
-        printlist(v);
+        printlist(stream, v);
     } else {
         fprintf(stderr, "print: unknown type: %d\n", v->type);
         exit(1);
     }
 
     if (nested == 0) {
-        printf("\n");
+        fprintf(stream, "\n");
     }
+}
+
+void
+fprint(FILE *stream, Value *v) {
+    fprint0(stream, v, 0);
 }
 
 void
 print(Value *v)
 {
-    print0(v, 0);
+    fprint(stdout, v);
+}
+
+Value *
+car(Value *v)
+{
+    assert(is_list(v));
+    return v->list.car;
+}
+
+Value *
+cdr(Value *v)
+{
+    assert(is_list(v));
+    return v->list.cdr;
+}
+
+Value *
+cadr(Value *v)
+{
+    assert(is_list(v));
+    return car(cdr(v));
+}
+
+Value *
+caddr(Value *v)
+{
+    assert(is_list(v));
+    return car(cdr(cdr(v)));
 }
