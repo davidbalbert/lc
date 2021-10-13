@@ -230,16 +230,30 @@ codegen_value(Value *v)
 void
 codegen_global_init(Value *expr)
 {
-    if (is_list(expr) && car(expr) == intern("def")) {
-        Value *sym = cadr(expr);
-        Value *val = caddr(expr);
-
-        type_assert(sym, SYM, expr);
-
-        printf("    %s = ", sym->sym);
-        codegen_value(val);
-        printf(";\n");
+    if (!is_list(expr) || car(expr) != intern("def")) {
+        return;
     }
+
+    Value *sym = cadr(expr);
+    Value *val = caddr(expr);
+
+    type_assert(sym, SYM, expr);
+
+    printf("    %s = ", sym->sym);
+
+    if (is_sym(val)) {
+        fprintf(stderr, "undefined variable %s\n", val->sym);
+        exit(1);
+    } else if (is_list(val) && car(val) == intern("quote")) {
+        codegen_value(cadr(val));
+    } else if (is_list(val)) {
+        fprintf(stderr, "undefined function %s\n", sym->sym);
+        exit(1);
+    } else {
+        codegen_value(val);
+    }
+
+    printf(";\n");
 }
 
 void
