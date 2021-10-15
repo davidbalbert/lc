@@ -113,6 +113,12 @@ is_symchar(int c)
     return !isspace(c) && c != '(' && c != ')' && c != '.';
 }
 
+int
+is_symstart(int c)
+{
+    return is_symchar(c) && !isdigit(c);
+}
+
 #define MAX_INTLEN 10
 #define MAX_SYMLEN 1024
 
@@ -144,7 +150,7 @@ read1(FILE *stream)
         xungetc(c, stream);
 
         return integer(atoi(buf));
-    } else if (is_symchar(c)) {
+    } else if (is_symstart(c)) {
         char buf[MAX_SYMLEN+1];
 
         int i;
@@ -224,7 +230,7 @@ codegen_global_decl(Value *expr)
 }
 
 void
-codegen_value(Value *v)
+codegen_data(Value *v)
 {
     if (is_nil(v)) {
         printf("NULL");
@@ -234,13 +240,34 @@ codegen_value(Value *v)
         printf("intern(\"%s\")", v->sym);
     } else if (is_list(v)) {
         printf("cons(");
-        codegen_value(car(v));
+        codegen_data(car(v));
         printf(", ");
-        codegen_value(cdr(v));
+        codegen_data(cdr(v));
         printf(")");
     } else {
         fprintf(stderr, "unknown type: %d\n", v->type);
         exit(1);
+    }
+}
+
+void
+codegen_eval(Value *expr) {
+    if (is_sym(expr)) {
+        if (contains(globals, expr)) {
+            printf("%s", expr->sym);
+        } else {
+            fprintf(stderr, "undefined variable: %s\n", expr->sym);
+            exit(1);
+        }
+    } else if (is_list(expr) && car(expr) == intern("quote")) {
+        codegen_data(cadr(expr));
+    } else if (is_list(expr)) {
+        type_assert(car(expr), SYM, expr);
+
+        fprintf(stderr, "undefined function: %s\n", car(expr)->sym);
+        exit(1);
+    } else {
+        codegen_data(expr);
     }
 }
 
@@ -257,24 +284,19 @@ codegen_global_init(Value *expr)
     type_assert(sym, SYM, expr);
 
     printf("    %s = ", sym->sym);
-
-    if (is_sym(val)) {
-        if (contains(globals, val)) {
-            printf("%s", val->sym);
-        } else {
-            fprintf(stderr, "undefined variable: %s\n", val->sym);
-            exit(1);
-        }
-    } else if (is_list(val) && car(val) == intern("quote")) {
-        codegen_value(cadr(val));
-    } else if (is_list(val)) {
-        fprintf(stderr, "undefined function: %s\n", sym->sym);
-        exit(1);
-    } else {
-        codegen_value(val);
-    }
-
+    codegen_eval(val);
     printf(";\n");
+}
+
+void
+codegen_expr(Value *expr)
+{
+    if (is_list(expr) && car(expr) == intern("print")) {
+        Value *val = cadr(expr);
+        printf("    print(");
+        codegen_eval(val);
+        printf(");\n");
+    }
 }
 
 void
@@ -297,6 +319,10 @@ codegen(Value *exprs)
 
     for (Value *l = exprs; l != NULL; l = cdr(l)) {
         codegen_global_init(car(l));
+    }
+
+    for (Value *l = exprs; l != NULL; l = cdr(l)) {
+        codegen_expr(car(l));
     }
 
     printf("    return 0;\n");
