@@ -6,7 +6,7 @@
 #include <string.h>
 
 enum Type {
-    ATOM,
+    SYM,
     PAIR,
 };
 typedef enum Type Type;
@@ -22,7 +22,7 @@ struct List {
 struct Value {
     Type type;
     union {
-        char *atom;
+        char *sym;
         List list;
     };
 };
@@ -54,8 +54,8 @@ is_nil(Value *v) {
 }
 
 int
-is_atom(Value *v) {
-    return !is_nil(v) && v->type == ATOM;
+is_sym(Value *v) {
+    return !is_nil(v) && v->type == SYM;
 }
 
 int
@@ -133,20 +133,20 @@ intern(char *s)
 
     while (!is_nil(l)) {
         Value *sym = l->list.car;
-        assert(is_atom(sym));
+        assert(is_sym(sym));
 
-        if (strcmp(sym->atom, s) == 0) {
+        if (strcmp(sym->sym, s) == 0) {
             return sym;
         }
 
         l = l->list.cdr;
     }
 
-    Value *v = alloc(ATOM);
+    Value *v = alloc(SYM);
 
     size_t len = strlen(s);
     char *s1 = xalloc(len + 1);
-    v->atom = strncpy(s1, s, len);
+    v->sym = strncpy(s1, s, len);
 
     symtab = cons(v, symtab);
 
@@ -158,8 +158,8 @@ print0(Value *v, int depth)
 {
     if (is_nil(v)) {
         printf("()");
-    } else if (is_atom(v)) {
-        printf("%s", v->atom);
+    } else if (is_sym(v)) {
+        printf("%s", v->sym);
     } else {
         printf("(");
         print0(v->list.car, depth+1);
@@ -381,20 +381,20 @@ eq(Value *x, Value *y)
 Value *
 eval(Value *v, Value *env)
 {
-    if (is_atom(v)) {
+    if (is_sym(v)) {
         Value *res = assoc(v, env);
 
         if (res) {
             return res;
         } else {
-            fprintf(stderr, "unbound variable: %s\n", v->atom);
+            fprintf(stderr, "unbound variable: %s\n", v->sym);
             exit(1);
         }
-    } else if (is_atom(car(v))) {
+    } else if (is_sym(car(v))) {
         if (car(v) == intern("quote")) {
             return cadr(v);
         } else if (car(v) == intern("atom")) {
-            return is_atom(eval(cadr(v), env)) ? intern("t") : NULL;
+            return is_sym(eval(cadr(v), env)) ? intern("t") : NULL;
         } else if (car(v) == intern("eq")) {
             return eq(eval(cadr(v), env), eval(caddr(v), env));
         } else if (car(v) == intern("car")) {
@@ -409,7 +409,7 @@ eval(Value *v, Value *env)
             Value *f = assoc(car(v), env);
 
             if (!is_list(f)) {
-                fprintf(stderr, "unbound function: %s\n", car(v)->atom);
+                fprintf(stderr, "unbound function: %s\n", car(v)->sym);
                 exit(1);
             }
 
