@@ -8,7 +8,6 @@
 enum Type {
     ATOM,
     PAIR,
-    ERROR
 };
 typedef enum Type Type;
 
@@ -25,7 +24,6 @@ struct Value {
     union {
         char *atom;
         List list;
-        char *err;
     };
 };
 
@@ -50,21 +48,6 @@ alloc(Type t)
 
 #define ERRLEN 1024
 
-Value *
-errorf(char *fmt, ...)
-{
-    char *s = xalloc(ERRLEN);
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(s, ERRLEN, fmt, ap);
-    va_end(ap);
-
-    Value *err = alloc(ERROR);
-    err->err = s;
-
-    return err;
-}
-
 int
 is_nil(Value *v) {
     return v == NULL;
@@ -80,38 +63,23 @@ is_list(Value *v) {
     return !is_nil(v) && v->type == PAIR;
 }
 
-int
-is_err(Value *v) {
-    return !is_nil(v) && v->type == ERROR;
-}
-
-#define check(x) do { if (is_err(x)) return x; } while (0)
-
 Value *
 car(Value *v)
 {
-    check(v);
-
-    if (is_nil(v)) {
-        return NULL;
-    } else if (is_list(v)) {
+    if (is_list(v)) {
         return v->list.car;
     } else {
-        return errorf("car: expected list");
+        return NULL;
     }
 }
 
 Value *
 cdr(Value *v)
 {
-    check(v);
-
-    if (is_nil(v)) {
-        return NULL;
-    } else if (is_list(v)) {
+    if (is_list(v)) {
         return v->list.cdr;
     } else {
-        return errorf("cdr: expected list");
+        return NULL;
     }
 }
 
@@ -148,9 +116,6 @@ caddar(Value *v)
 Value *
 cons(Value *car, Value *cdr)
 {
-    check(car);
-    check(cdr);
-
     Value *v = alloc(PAIR);
     v->list.car = car;
     v->list.cdr = cdr;
@@ -191,11 +156,6 @@ intern(char *s)
 void
 print0(Value *v, int depth)
 {
-    if (is_err(v)) {
-        fprintf(stderr, "error: %s\n", v->err);
-        return;
-    }
-
     if (is_nil(v)) {
         printf("()");
     } else if (is_atom(v)) {
@@ -246,6 +206,17 @@ peek(FILE *stream)
     return c;
 }
 
+int
+xungetc(int c, FILE *stream)
+{
+    int res = ungetc(c, stream);
+    if (res == EOF) {
+        fprintf(stderr, "couldn't ungetc\n");
+        exit(1);
+    }
+    return res;
+}
+
 void
 skipspace(FILE *stream)
 {
@@ -264,15 +235,13 @@ readlist(FILE *stream)
 
     int c = peek(stream);
     if (c == EOF) {
-        return errorf("expected value or ')' but got EOF");
+        fprintf(stderr, "expected value or ')' but got EOF\n");
+        exit(1);
     } else if (c == ')') {
         fgetc(stream);
         return NULL;
     } else {
         Value *car = read_(stream);
-        if (is_err(car)) {
-            return car;
-        }
 
         skipspace(stream);
 
@@ -280,21 +249,15 @@ readlist(FILE *stream)
         if (peek(stream) == '.') {
             fgetc(stream);
             cdr = read_(stream);
-            if (is_err(cdr)) {
-                return cdr;
-            }
 
             skipspace(stream);
 
             if (fgetc(stream) != ')') {
-                return errorf("expected ')'");
+                fprintf(stderr, "expected ')'\n");
+                exit(1);
             }
         } else {
             cdr = readlist(stream);
-
-            if (is_err(cdr)) {
-                return cdr;
-            }
         }
 
         return cons(car, cdr);
@@ -324,25 +287,22 @@ read_(FILE *stream)
         buf[i] = '\0';
 
         if (c != EOF) {
-            if (ungetc(c, stream) == EOF) {
-                return errorf("couldn't ungetc (read atom)");
-            }
+            xungetc(c, stream);
         }
 
         return intern(buf);
     } else {
-        return errorf("unexpected character '%c' (%d)", c, c);
+        fprintf(stderr, "unexpected character '%c' (%d)\n", c, c);
+        exit(1);
     }
 }
 
 Value *
 assoc(Value *v, Value *l)
 {
-    check(v);
-    check(l);
-
     if (!is_list(l) && !is_nil(l)) {
-        return errorf("assoc: expected list");
+        fprintf(stderr, "assoc: expected list\n");
+        exit(1);
     }
 
     while (!is_nil(l)) {
@@ -351,9 +311,6 @@ assoc(Value *v, Value *l)
         }
 
         l = cdr(l);
-        if (is_err(l)) {
-            return l;
-        }
     }
 
     return NULL;
@@ -362,9 +319,6 @@ assoc(Value *v, Value *l)
 Value *
 append(Value *x, Value *y)
 {
-    check(x);
-    check(y);
-
     if (is_nil(x)) {
         return y;
     } else {
@@ -375,17 +329,16 @@ append(Value *x, Value *y)
 Value *
 zip(Value *x, Value *y)
 {
-    check(x);
-    check(y);
-
     if (is_nil(x) && is_nil(y)) {
         return NULL;
     } else if (is_list(x) && is_list(y)) {
         return cons(cons(car(x), cons(car(y), NULL)), zip(cdr(x), cdr(y)));
     } else if (is_nil(x) || is_nil(y)){
-        return errorf("zip: lists not the same length");
+        fprintf(stderr, "zip: lists not the same length\n");
+        exit(1);
     } else {
-        return errorf("zip: expected list");
+        fprintf(stderr, "zip: expected list\n");
+        exit(1);
     }
 }
 
@@ -394,12 +347,7 @@ Value *eval(Value *v, Value *env);
 Value *
 evcon(Value *conditions, Value *env)
 {
-    check(conditions);
-    check(env);
-
-    if (!is_list(conditions) && !is_nil(conditions)) {
-        return errorf("evcon: expected list");
-    }
+    assert(is_list(conditions) || is_nil(conditions));
 
     if (eval(caar(conditions), env)) {
         return eval(cadar(conditions), env);
@@ -411,12 +359,7 @@ evcon(Value *conditions, Value *env)
 Value *
 evlis(Value *params, Value *env)
 {
-    check(params);
-    check(env);
-
-    if (!is_list(params) && !is_nil(params)) {
-        return errorf("evlis: expected list");
-    }
+    assert(is_list(params) || is_nil(params));
 
     if (is_nil(params)) {
         return NULL;
@@ -428,9 +371,6 @@ evlis(Value *params, Value *env)
 Value *
 eq(Value *x, Value *y)
 {
-    check(x);
-    check(y);
-
     if (x == y) {
         return intern("t");
     } else {
@@ -441,16 +381,14 @@ eq(Value *x, Value *y)
 Value *
 eval(Value *v, Value *env)
 {
-    check(v);
-    check(env);
-
     if (is_atom(v)) {
         Value *res = assoc(v, env);
 
         if (res) {
             return res;
         } else {
-            return errorf("unbound variable: %s", v->atom);
+            fprintf(stderr, "unbound variable: %s\n", v->atom);
+            exit(1);
         }
     } else if (is_atom(car(v))) {
         if (car(v) == intern("quote")) {
@@ -470,10 +408,9 @@ eval(Value *v, Value *env)
         } else {
             Value *f = assoc(car(v), env);
 
-            if (is_err(f)) {
-                return f;
-            } else if (!is_list(f)) {
-                return errorf("unbound function: %s", car(v)->atom);
+            if (!is_list(f)) {
+                fprintf(stderr, "unbound function: %s\n", car(v)->atom);
+                exit(1);
             }
 
             return eval(cons(f, cdr(v)), env);
@@ -489,7 +426,8 @@ eval(Value *v, Value *env)
     }
 
     // print(v);
-    return errorf("eval: unhandled case");
+    fprintf(stderr, "eval: unhandled case\n");
+    exit(1);
 }
 
 int
