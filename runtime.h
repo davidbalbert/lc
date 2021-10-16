@@ -40,5 +40,7 @@ Value *cons(Value *car, Value *cdr);
 Value *car(Value *v);
 Value *cdr(Value *v);
 Value *cadr(Value *v);
+Value *cddr(Value *v);
 Value *caddr(Value *v);
+Value *caaddr(Value *v);
 

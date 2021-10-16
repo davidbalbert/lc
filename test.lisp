@@ -1,8 +1,9 @@
-(def foo 5)
-(def bar foo)
-(def baz (quote (foo bar baz)))
-(print foo)
-(print bar)
-(print baz)
-(print (quote hi))
-(print 5)
+(def num 5)
+
+(def message (quote (hello world)))
+
+(def caaaaar (lambda (x)
+  (car (car (car (car (car x)))))))
+
+
+(caaaaar num)

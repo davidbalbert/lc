@@ -174,8 +174,22 @@ cadr(Value *v)
 }
 
 Value *
+cddr(Value *v)
+{
+    assert(is_list(v));
+    return cdr(cdr(v));
+}
+
+Value *
 caddr(Value *v)
 {
     assert(is_list(v));
     return car(cdr(cdr(v)));
+}
+
+Value *
+caaddr(Value *v)
+{
+    assert(is_list(v));
+    return car(car(cdr(cdr(v))));
 }

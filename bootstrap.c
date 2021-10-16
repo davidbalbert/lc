@@ -215,12 +215,64 @@ readall(FILE *stream)
     return reverse(res);
 }
 
+void emit_eval(Value *expr);
+
+void
+emit_func(Value *expr)
+{
+        Value *sym = cadr(expr);
+        type_assert(sym, SYM, expr);
+
+        Value *func = caddr(expr);
+        type_assert(func, LIST, expr);
+
+        Value *params = cadr(func);
+        type_assert(params, LIST, expr);
+
+        Value *body = cddr(func);
+        type_assert(body, LIST, expr);
+
+        printf("\n");
+        printf("Value *\n");
+        printf("%s(", sym->sym);
+
+        for (Value *p = params; p != NULL; p = cdr(p)) {
+            Value *param = car(p);
+            type_assert(param, SYM, expr);
+
+            printf("Value *%s", param->sym);
+            if (cdr(p)) {
+                printf(", ");
+            }
+        }
+
+        printf(")\n");
+        printf("{\n");
+
+        Value *b = body;
+        while (b != NULL) {
+            printf("    ");
+
+            if (cdr(b) == NULL) {
+                printf("return ");
+            }
+
+            emit_eval(car(b));
+            b = cdr(b);
+        }
+
+        printf("}\n");
+}
+
 Value *globals = NULL;
 
 void
-codegen_global_decl(Value *expr)
+emit_global(Value *expr)
 {
-    if (is_list(expr) && car(expr) == intern("def")) {
+    if (is_list(expr) && car(expr) == intern("def") && is_list(caddr(expr)) && caaddr(expr) == intern("lambda")) {
+        emit_func(expr);
+        cons(cadr(expr), globals);
+    } else if (is_list(expr) && car(expr) == intern("def")) {
         Value *sym = cadr(expr);
         type_assert(sym, SYM, expr);
 
@@ -230,7 +282,7 @@ codegen_global_decl(Value *expr)
 }
 
 void
-codegen_data(Value *v)
+emit_data(Value *v)
 {
     if (is_nil(v)) {
         printf("NULL");
@@ -240,9 +292,9 @@ codegen_data(Value *v)
         printf("intern(\"%s\")", v->sym);
     } else if (is_list(v)) {
         printf("cons(");
-        codegen_data(car(v));
+        emit_data(car(v));
         printf(", ");
-        codegen_data(cdr(v));
+        emit_data(cdr(v));
         printf(")");
     } else {
         fprintf(stderr, "unknown type: %d\n", v->type);
@@ -251,7 +303,7 @@ codegen_data(Value *v)
 }
 
 void
-codegen_eval(Value *expr) {
+emit_eval(Value *expr) {
     if (is_sym(expr)) {
         if (contains(globals, expr)) {
             printf("%s", expr->sym);
@@ -260,21 +312,36 @@ codegen_eval(Value *expr) {
             exit(1);
         }
     } else if (is_list(expr) && car(expr) == intern("quote")) {
-        codegen_data(cadr(expr));
+        emit_data(cadr(expr));
+    } else if (is_list(expr) && car(expr) == intern("lambda")) {
+        // TODO
+    } else if (is_list(expr) && car(expr) == intern("def")) {
+        // do nothing
     } else if (is_list(expr)) {
         type_assert(car(expr), SYM, expr);
 
-        fprintf(stderr, "undefined function: %s\n", car(expr)->sym);
-        exit(1);
+        printf("%s(", car(expr)->sym);
+        for (Value *p = cdr(expr); p != NULL; p = cdr(p)) {
+            emit_data(car(p));
+            if (cdr(p)) {
+                printf(", ");
+            }
+        }
+
+        printf(");\n");
     } else {
-        codegen_data(expr);
+        emit_data(expr);
     }
 }
 
 void
-codegen_global_init(Value *expr)
+emit_global_init(Value *expr)
 {
     if (!is_list(expr) || car(expr) != intern("def")) {
+        return;
+    }
+
+    if (is_list(caddr(expr)) && caaddr(expr) == intern("lambda")) {
         return;
     }
 
@@ -284,23 +351,12 @@ codegen_global_init(Value *expr)
     type_assert(sym, SYM, expr);
 
     printf("    %s = ", sym->sym);
-    codegen_eval(val);
+    emit_eval(val);
     printf(";\n");
 }
 
 void
-codegen_expr(Value *expr)
-{
-    if (is_list(expr) && car(expr) == intern("print")) {
-        Value *val = cadr(expr);
-        printf("    print(");
-        codegen_eval(val);
-        printf(");\n");
-    }
-}
-
-void
-codegen(Value *exprs)
+emit(Value *exprs)
 {
     printf("#include <stdio.h>\n");
     printf("\n");
@@ -308,7 +364,7 @@ codegen(Value *exprs)
     printf("\n");
 
     for (Value *l = exprs; l != NULL; l = cdr(l)) {
-        codegen_global_decl(car(l));
+        emit_global(car(l));
     }
 
     printf("\n");
@@ -318,11 +374,13 @@ codegen(Value *exprs)
     printf("{\n");
 
     for (Value *l = exprs; l != NULL; l = cdr(l)) {
-        codegen_global_init(car(l));
+        emit_global_init(car(l));
     }
 
+    printf("\n");
+
     for (Value *l = exprs; l != NULL; l = cdr(l)) {
-        codegen_expr(car(l));
+        emit_eval(car(l));
     }
 
     printf("    return 0;\n");
@@ -331,6 +389,6 @@ codegen(Value *exprs)
 
 int main(int argc, char const *argv[])
 {
-    codegen(readall(stdin));
+    emit(readall(stdin));
     return 0;
 }
