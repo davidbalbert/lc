@@ -21,10 +21,16 @@ struct List {
     Value *cdr;
 };
 
+typedef struct Env Env;
+struct Env {
+    Env *parent;
+    Value *bindings;
+};
+
 struct Func {
     Value *params;
     Value *body;
-    Value *env;
+    Env *env;
 };
 typedef struct Func Func;
 
@@ -158,7 +164,7 @@ mkint(int n)
 }
 
 Value *
-mkfunc(Value *params, Value *body, Value *env)
+mkfunc(Value *params, Value *body, Env *env)
 {
     Value *v = alloc(FUNC);
     v->func.params = params;
@@ -434,10 +440,41 @@ zip(Value *x, Value *y)
     }
 }
 
-Value *eval(Value *v, Value *env);
+Env *
+clone(Env *env)
+{
+    Env *newenv = xalloc(sizeof(Env));
+    newenv->parent = env;
+    newenv->bindings = NULL;
+    return newenv;
+}
 
 Value *
-evcon(Value *conditions, Value *env)
+lookup(Value *name, Env *env)
+{
+    Value *v;
+
+    for (; env != NULL; env = env->parent) {
+        v = assoc(name, env->bindings);
+        if (v != NULL) {
+            return v;
+        }
+    }
+
+    return NULL;
+}
+
+Value *
+def(Value *name, Value *value, Env *env)
+{
+    env->bindings = cons(cons(name, cons(value, NULL)), env->bindings);
+    return value;
+}
+
+Value *eval(Value *v, Env *env);
+
+Value *
+evcon(Value *conditions, Env *env)
 {
     assert(is_list(conditions) || is_nil(conditions));
 
@@ -449,7 +486,7 @@ evcon(Value *conditions, Value *env)
 }
 
 Value *
-evlis(Value *params, Value *env)
+evlis(Value *params, Env *env)
 {
     assert(is_list(params) || is_nil(params));
 
@@ -470,8 +507,10 @@ eq(Value *x, Value *y)
     }
 }
 
+Env *globals = NULL;
+
 Value *
-eval(Value *v, Value *env)
+eval(Value *v, Env *env)
 {
     if (is_list(v) && car(v) == intern("quote")) {
         return cadr(v);
@@ -489,16 +528,34 @@ eval(Value *v, Value *env)
         return evcon(cdr(v), env);
     } else if (is_list(v) && car(v) == intern("lambda")) {
         return mkfunc(cadr(v), cddr(v), env);
+    } else if (is_list(v) && car(v) == intern("def")) {
+        Value *name = cadr(v);
+        Value *val = eval(caddr(v), env);
+
+        if (!is_sym(name)) {
+            fprintf(stderr, "def: expected symbol\n");
+            exit(1);
+        }
+
+        Value *old = lookup(name, globals);
+        if (old != NULL) {
+            fprintf(stderr, "def: symbol already defined: ");
+            fprint(stderr, name);
+            exit(1);
+        }
+
+        return def(name, val, globals);
     } else if (is_list(v)) {
         Value *f = eval(car(v), env);
 
         if (is_func(f)) {
             Value *bindings = zip(f->func.params, evlis(cdr(v), env));
-            Value *bound = append(bindings, f->func.env);
+            Env *newenv = clone(f->func.env);
+            newenv->bindings = bindings;
 
             Value *res;
             for (Value *e = f->func.body; is_list(e); e = cdr(e)) {
-                res = eval(car(e), bound);
+                res = eval(car(e), newenv);
             }
 
             return res;
@@ -508,7 +565,7 @@ eval(Value *v, Value *env)
             exit(1);
         }
     } else if (is_sym(v)) {
-        Value *res = assoc(v, env);
+        Value *res = lookup(v, env);
 
         if (res) {
             return res;
@@ -524,15 +581,11 @@ eval(Value *v, Value *env)
 int
 main(int argc, char *argv[])
 {
-    char *err = NULL;
-    Value *env = NULL;
-
-    env = cons(cons(intern("foo"), cons(intern("bar"), NULL)), env);
-    env = cons(cons(intern("a"), cons(cons(intern("x"), cons(intern("y"), cons(intern("z"), NULL))), NULL)), env);
+    globals = clone(NULL);
 
     while (peek(stdin) != EOF) {
         Value *v = read1(stdin);
-        v = eval(v, env);
+        v = eval(v, globals);
         print(v);
     }
     return 0;
