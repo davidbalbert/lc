@@ -11,7 +11,8 @@ enum Type {
     INT,
     PAIR,
     BUILTIN,
-    FUNC
+    FUNC,
+    UNDEFINED // returned by assoc and lookup if key is not found
 };
 typedef enum Type Type;
 
@@ -235,7 +236,7 @@ void
 fprint0(FILE *stream, Value *v, int depth)
 {
     if (is_nil(v)) {
-        fprintf(stream, "()");
+        fprintf(stream, "nil");
     } else if (is_sym(v)) {
         fprintf(stream, "%s", v->sym);
     } else if (is_int(v)) {
@@ -440,6 +441,8 @@ read1(FILE *stream)
     }
 }
 
+Value *undefined;
+
 Value *
 assoc(Value *v, Value *l)
 {
@@ -456,7 +459,7 @@ assoc(Value *v, Value *l)
         l = cdr(l);
     }
 
-    return NULL;
+    return undefined;
 }
 
 Value *
@@ -501,12 +504,12 @@ lookup(Value *name, Env *env)
 
     for (; env != NULL; env = env->parent) {
         v = assoc(name, env->bindings);
-        if (v != NULL) {
+        if (v != undefined) {
             return v;
         }
     }
 
-    return NULL;
+    return undefined;
 }
 
 void
@@ -579,7 +582,7 @@ eval(Value *v, Env *env)
         }
 
         Value *old = lookup(name, globals);
-        if (old != NULL) {
+        if (old != undefined) {
             fprintf(stderr, "def: symbol already defined: ");
             fprint(stderr, name);
             exit(1);
@@ -610,7 +613,7 @@ eval(Value *v, Env *env)
     } else if (is_sym(v)) {
         Value *res = lookup(v, env);
 
-        if (res) {
+        if (res != undefined) {
             return res;
         } else {
             fprintf(stderr, "unbound variable: %s\n", v->sym);
@@ -778,10 +781,13 @@ comp(<=, le)
 int
 main(int argc, char *argv[])
 {
+    undefined = alloc(UNDEFINED);
+
     globals = clone(NULL);
 
     symbol(t); t = s_t;
     def(t, t, globals);
+    def(intern("nil"), NULL, globals);
 
     symbol(quote);
     symbol(cond);
