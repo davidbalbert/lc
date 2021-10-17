@@ -611,7 +611,7 @@ eval(Value *v, Env *env)
 }
 
 Value *
-eq(Value *x, Value *y)
+is_eq(Value *x, Value *y)
 {
     if (x == y) {
         return t;
@@ -642,6 +642,18 @@ arity(Value *args, int expected, char *name)
     }
 }
 
+int
+allints(Value *l)
+{
+    for (; l != NULL; l = cdr(l)) {
+        if (!is_int(car(l))) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
 #define pred(name) \
     Value *builtin_is_##name(Value *args) { \
         arity(args, 1, #name); \
@@ -660,10 +672,29 @@ arity(Value *args, int expected, char *name)
         return name(car(args), cadr(args)); \
     }
 
+#define op(op, name, init) \
+    Value *builtin_##name(Value *args) { \
+        if (!allints(args)) return NULL; \
+        int res = init; \
+        for (; args != NULL; args = cdr(args)) { \
+            res = res op car(args)->n; \
+        } \
+        return mkint(res); \
+    }
+
+#define comp(op, name) \
+    Value *builtin_##name(Value *args) { \
+        arity(args, 2, #op); \
+        Value *x = car(args); \
+        Value *y = cadr(args); \
+        if (!is_int(x) || !is_int(y)) return NULL; \
+        return car(args)->n op cadr(args)->n ? t : NULL; \
+    }
+
 builtin1(car)
 builtin1(cdr)
 builtin2(cons)
-builtin2(eq)
+builtin2(is_eq)
 
 pred(nil)
 pred(sym)
@@ -672,9 +703,19 @@ pred(pair)
 pred(func)
 pred(builtin)
 
+op(+, plus, 0)
+op(-, minus, 0)
+op(*, times, 1)
+
+comp(>, gt)
+comp(<, lt)
+comp(>=, ge)
+comp(<=, le)
+
 #define symbol(name) s_##name = intern(#name)
 #define def_builtin(name) def(intern(#name), mkbuiltin(#name, builtin_##name), globals)
 #define def_pred(name) def(intern(#name "?"), mkbuiltin(#name "?", builtin_is_##name), globals)
+#define def_op(op, name) def(intern(#op), mkbuiltin(#op, builtin_##name), globals)
 
 int
 main(int argc, char *argv[])
@@ -692,7 +733,6 @@ main(int argc, char *argv[])
     def_builtin(car);
     def_builtin(cdr);
     def_builtin(cons);
-    def_builtin(eq);
 
     def_pred(nil);
     def_pred(sym);
@@ -700,6 +740,16 @@ main(int argc, char *argv[])
     def_pred(pair);
     def_pred(func);
     def_pred(builtin);
+
+    def_pred(eq);
+
+    def_op(+, plus);
+    def_op(-, minus);
+    def_op(*, times);
+    def_op(>, gt);
+    def_op(<, lt);
+    def_op(>=, ge);
+    def_op(<=, le);
 
     while (peek(stdin) != EOF) {
         Value *v = read1(stdin);
