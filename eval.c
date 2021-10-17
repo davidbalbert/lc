@@ -675,7 +675,7 @@ varity(Value *args, int min, char *name)
     int actual = length(args);
 
     if (actual < min) {
-        fprintf(stderr, "%s: expected %d arguments, got %d\n", name, min, actual);
+        fprintf(stderr, "%s: expected %d or more arguments, got %d\n", name, min, actual);
         exit(1);
     }
 }
