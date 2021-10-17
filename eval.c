@@ -540,16 +540,6 @@ evlis(Value *params, Env *env)
     }
 }
 
-Value *
-eq(Value *x, Value *y)
-{
-    if (x == y) {
-        return intern("t");
-    } else {
-        return NULL;
-    }
-}
-
 Env *globals = NULL;
 
 Value *s_t;
@@ -620,20 +610,31 @@ eval(Value *v, Env *env)
     }
 }
 
-int
-len(Value *l)
+Value *
+eq(Value *x, Value *y)
 {
-    if (!is_pair(l)) {
-        return 0;
+    if (x == y) {
+        return t;
     } else {
-        return 1 + len(cdr(l));
+        return NULL;
     }
+}
+
+int
+length(Value *l)
+{
+    int len = 0;
+    for (; l != NULL; l = cdr(l)) {
+        len++;
+    }
+
+    return len;
 }
 
 void
 arity(Value *args, int expected, char *name)
 {
-    int actual = len(args);
+    int actual = length(args);
 
     if (actual != expected) {
         fprintf(stderr, "%s: expected %d arguments, got %d\n", name, expected, actual);
@@ -662,6 +663,7 @@ arity(Value *args, int expected, char *name)
 builtin1(car)
 builtin1(cdr)
 builtin2(cons)
+builtin2(eq)
 
 pred(nil)
 pred(sym)
@@ -690,6 +692,7 @@ main(int argc, char *argv[])
     def_builtin(car);
     def_builtin(cdr);
     def_builtin(cons);
+    def_builtin(eq);
 
     def_pred(nil);
     def_pred(sym);
