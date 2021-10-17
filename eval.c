@@ -7,7 +7,8 @@
 
 enum Type {
     SYM,
-    PAIR,
+    INT,
+    LIST
 };
 typedef enum Type Type;
 
@@ -23,6 +24,7 @@ struct Value {
     Type type;
     union {
         char *sym;
+        int n;
         List list;
     };
 };
@@ -59,8 +61,13 @@ is_sym(Value *v) {
 }
 
 int
+is_int(Value *v) {
+    return !is_nil(v) && v->type == INT;
+}
+
+int
 is_list(Value *v) {
-    return !is_nil(v) && v->type == PAIR;
+    return !is_nil(v) && v->type == LIST;
 }
 
 Value *
@@ -116,9 +123,17 @@ caddar(Value *v)
 Value *
 cons(Value *car, Value *cdr)
 {
-    Value *v = alloc(PAIR);
+    Value *v = alloc(LIST);
     v->list.car = car;
     v->list.cdr = cdr;
+    return v;
+}
+
+Value *
+integer(int n)
+{
+    Value *v = alloc(INT);
+    v->n = n;
     return v;
 }
 
@@ -154,40 +169,51 @@ intern(char *s)
 }
 
 void
-print0(Value *v, int depth)
+fprint0(FILE *stream, Value *v, int depth)
 {
     if (is_nil(v)) {
-        printf("()");
+        fprintf(stream, "()");
     } else if (is_sym(v)) {
-        printf("%s", v->sym);
-    } else {
-        printf("(");
-        print0(v->list.car, depth+1);
+        fprintf(stream, "%s", v->sym);
+    } else if (is_int(v)) {
+        fprintf(stream, "%d", v->n);
+    } else if (is_list(v)){
+        fprintf(stream, "(");
+        fprint0(stream, v->list.car, depth+1);
 
         Value *cdr = v->list.cdr;
         while (is_list(cdr)) {
-            printf(" ");
-            print0(cdr->list.car, depth+1);
+            fprintf(stream, " ");
+            fprint0(stream, cdr->list.car, depth+1);
             cdr = cdr->list.cdr;
         }
 
         if (!is_nil(cdr)) {
-            printf(" . ");
-            print0(cdr, depth+1);
+            fprintf(stream, " . ");
+            fprint0(stream, cdr, depth+1);
         }
 
-        printf(")");
+        fprintf(stream, ")");
+    } else {
+        fprintf(stdout, "print: unknown type\n");
+        exit(1);
     }
 
     if (depth == 0) {
-        printf("\n");
+        fprintf(stream, "\n");
     }
+}
+
+void
+fprint(FILE *stream, Value *v)
+{
+    fprint0(stream, v, 0);
 }
 
 void
 print(Value *v)
 {
-    print0(v, 0);
+    fprint(stdout, v);
 }
 
 int
@@ -226,49 +252,59 @@ skipspace(FILE *stream)
     }
 }
 
-Value *read_(FILE *stream);
+Value *read1(FILE *stream);
 
 Value *
-readlist(FILE *stream)
+readlist(FILE *stream, int first)
 {
     skipspace(stream);
 
     int c = peek(stream);
+
     if (c == EOF) {
         fprintf(stderr, "expected value or ')' but got EOF\n");
         exit(1);
     } else if (c == ')') {
+        // TODO: error handling
         fgetc(stream);
         return NULL;
-    } else {
-        Value *car = read_(stream);
+    } else if (c == '.' && !first) {
+        // TODO: error handling
+        c = fgetc(stream);
 
+        Value *cdr = read1(stream);
         skipspace(stream);
-
-        Value *cdr;
-        if (peek(stream) == '.') {
-            fgetc(stream);
-            cdr = read_(stream);
-
-            skipspace(stream);
-
-            if (fgetc(stream) != ')') {
-                fprintf(stderr, "expected ')'\n");
-                exit(1);
-            }
-        } else {
-            cdr = readlist(stream);
+        int c = fgetc(stream);
+        if (c != ')') {
+            fprintf(stderr, "expected ')' but got '%c'\n", c);
+            exit(1);
         }
 
+        return cdr;
+    } else {
+        Value *car = read1(stream);
+        Value *cdr = readlist(stream, 0);
         return cons(car, cdr);
     }
 }
 
-#define MAX_ATOM_LEN 256
+int
+is_symchar(int c)
+{
+    return !isspace(c) && c != '(' && c != ')' && c != '.';
+}
 
-// Named read_ to not conflict with read(2)
+int
+is_symstart(int c)
+{
+    return is_symchar(c) && !isdigit(c);
+}
+
+#define MAX_INTLEN 10
+#define MAX_SYMLEN 1024
+
 Value *
-read_(FILE *stream)
+read1(FILE *stream)
 {
     skipspace(stream);
 
@@ -276,23 +312,45 @@ read_(FILE *stream)
     if (c == EOF) {
         return NULL;
     } else if (c == '(') {
-        return readlist(stream);
-    } else if (isalpha(c)) {
-        char *buf = xalloc(MAX_ATOM_LEN+1);
-        int i = 0;
-        while (isalpha(c) && i < MAX_ATOM_LEN) {
-            buf[i++] = c;
-            c = fgetc(stream);
-        }
-        buf[i] = '\0';
+        return readlist(stream, 1);
+    } else if (isdigit(c)) {
+        char buf[MAX_INTLEN+1];
 
-        if (c != EOF) {
-            xungetc(c, stream);
+        int i;
+        for (i = 0; isdigit(c); i++) {
+            buf[i] = c;
+            c = fgetc(stream);
+
+            if (i == MAX_INTLEN) {
+                fprintf(stderr, "integer too long\n");
+                exit(1);
+            }
         }
+
+        buf[i] = '\0';
+        xungetc(c, stream);
+
+        return integer(atoi(buf));
+    } else if (is_symstart(c)) {
+        char buf[MAX_SYMLEN+1];
+
+        int i;
+        for (i = 0; is_symchar(c); i++) {
+            buf[i] = c;
+            c = fgetc(stream);
+
+            if (i == MAX_SYMLEN) {
+                fprintf(stderr, "symbol too long\n");
+                exit(1);
+            }
+        }
+
+        buf[i] = '\0';
+        xungetc(c, stream);
 
         return intern(buf);
     } else {
-        fprintf(stderr, "unexpected character '%c' (%d)\n", c, c);
+        fprintf(stderr, "unexpected character: %c\n", c);
         exit(1);
     }
 }
@@ -381,16 +439,7 @@ eq(Value *x, Value *y)
 Value *
 eval(Value *v, Value *env)
 {
-    if (is_sym(v)) {
-        Value *res = assoc(v, env);
-
-        if (res) {
-            return res;
-        } else {
-            fprintf(stderr, "unbound variable: %s\n", v->sym);
-            exit(1);
-        }
-    } else if (is_sym(car(v))) {
+    if (is_list(v) && is_sym(car(v))) {
         if (car(v) == intern("quote")) {
             return cadr(v);
         } else if (car(v) == intern("atom")) {
@@ -408,26 +457,37 @@ eval(Value *v, Value *env)
         } else {
             Value *f = assoc(car(v), env);
 
-            if (!is_list(f)) {
+            if (is_nil(f)) {
                 fprintf(stderr, "unbound function: %s\n", car(v)->sym);
                 exit(1);
             }
 
             return eval(cons(f, cdr(v)), env);
         }
-    } else if (caar(v) == intern("label")) {
+    } else if (is_list(v) && caar(v) == intern("label")) {
         return eval(
             cons(caddar(v), cdr(v)),
             cons(cons(cadar(v), cons(car(v), NULL)), env));
-    } else if (caar(v) == intern("lambda")) {
+    } else if (is_list(v) && caar(v) == intern("lambda")) {
         Value *bindings = zip(cadar(v), evlis(cdr(v), env));
 
         return eval(caddar(v), append(bindings, env));
-    }
+    } else if (is_list(v)) {
+        fprintf(stderr, "expected function, got: ");
+        fprint(stderr, car(v));
+        exit(1);
+    } else if (is_sym(v)) {
+        Value *res = assoc(v, env);
 
-    // print(v);
-    fprintf(stderr, "eval: unhandled case\n");
-    exit(1);
+        if (res) {
+            return res;
+        } else {
+            fprintf(stderr, "unbound variable: %s\n", v->sym);
+            exit(1);
+        }
+    } else {
+        return v;
+    }
 }
 
 int
@@ -441,7 +501,7 @@ main(int argc, char *argv[])
     env = cons(cons(intern("cadr"), cons(cons(intern("lambda"), cons(cons(intern("l"), NULL), cons(cons(intern("car"), cons(cons(intern("cdr"), cons(intern("l"), NULL)), NULL)), NULL))), NULL)), env);
 
     while (peek(stdin) != EOF) {
-        Value *v = read_(stdin);
+        Value *v = read1(stdin);
         v = eval(v, env);
         print(v);
     }
