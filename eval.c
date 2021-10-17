@@ -8,7 +8,8 @@
 enum Type {
     SYM,
     INT,
-    LIST
+    LIST,
+    FUNC
 };
 typedef enum Type Type;
 
@@ -20,12 +21,20 @@ struct List {
     Value *cdr;
 };
 
+struct Func {
+    Value *params;
+    Value *body;
+    Value *env;
+};
+typedef struct Func Func;
+
 struct Value {
     Type type;
     union {
         char *sym;
         int n;
         List list;
+        Func func;
     };
 };
 
@@ -70,6 +79,11 @@ is_list(Value *v) {
     return !is_nil(v) && v->type == LIST;
 }
 
+int
+is_func(Value *v) {
+    return !is_nil(v) && v->type == FUNC;
+}
+
 Value *
 car(Value *v)
 {
@@ -103,6 +117,12 @@ cadr(Value *v)
 }
 
 Value *
+cddr(Value *v)
+{
+    return cdr(cdr(v));
+}
+
+Value *
 cadar(Value *v)
 {
     return car(cdr(car(v)));
@@ -130,10 +150,20 @@ cons(Value *car, Value *cdr)
 }
 
 Value *
-integer(int n)
+mkint(int n)
 {
     Value *v = alloc(INT);
     v->n = n;
+    return v;
+}
+
+Value *
+mkfunc(Value *params, Value *body, Value *env)
+{
+    Value *v = alloc(FUNC);
+    v->func.params = params;
+    v->func.body = body;
+    v->func.env = env;
     return v;
 }
 
@@ -177,6 +207,8 @@ fprint0(FILE *stream, Value *v, int depth)
         fprintf(stream, "%s", v->sym);
     } else if (is_int(v)) {
         fprintf(stream, "%d", v->n);
+    } else if (is_func(v)) {
+        fprintf(stream, "#<function>");
     } else if (is_list(v)){
         fprintf(stream, "(");
         fprint0(stream, v->list.car, depth+1);
@@ -332,7 +364,7 @@ read1(FILE *stream)
         buf[i] = '\0';
         xungetc(c, stream);
 
-        return integer(atoi(buf));
+        return mkint(atoi(buf));
     } else if (is_symstart(c)) {
         char buf[MAX_SYMLEN+1];
 
@@ -441,43 +473,40 @@ eq(Value *x, Value *y)
 Value *
 eval(Value *v, Value *env)
 {
-    if (is_list(v) && is_sym(car(v))) {
-        if (car(v) == intern("quote")) {
-            return cadr(v);
-        } else if (car(v) == intern("atom")) {
-            return is_sym(eval(cadr(v), env)) ? intern("t") : NULL;
-        } else if (car(v) == intern("eq")) {
-            return eq(eval(cadr(v), env), eval(caddr(v), env));
-        } else if (car(v) == intern("car")) {
-            return car(eval(cadr(v), env));
-        } else if (car(v) == intern("cdr")) {
-            return cdr(eval(cadr(v), env));
-        } else if (car(v) == intern("cons")) {
-            return cons(eval(cadr(v), env), eval(caddr(v), env));
-        } else if (car(v) == intern("cond")) {
-            return evcon(cdr(v), env);
-        } else {
-            Value *f = assoc(car(v), env);
+    if (is_list(v) && car(v) == intern("quote")) {
+        return cadr(v);
+    } else if (is_list(v) && car(v) == intern("atom")) {
+        return is_sym(eval(cadr(v), env)) ? intern("t") : NULL;
+    } else if (is_list(v) && car(v) == intern("eq")) {
+        return eq(eval(cadr(v), env), eval(caddr(v), env));
+    } else if (is_list(v) && car(v) == intern("car")) {
+        return car(eval(cadr(v), env));
+    } else if (is_list(v) && car(v) == intern("cdr")) {
+        return cdr(eval(cadr(v), env));
+    } else if (is_list(v) && car(v) == intern("cons")) {
+        return cons(eval(cadr(v), env), eval(caddr(v), env));
+    } else if (is_list(v) && car(v) == intern("cond")) {
+        return evcon(cdr(v), env);
+    } else if (is_list(v) && car(v) == intern("lambda")) {
+        return mkfunc(cadr(v), cddr(v), env);
+    } else if (is_list(v)) {
+        Value *f = eval(car(v), env);
 
-            if (is_nil(f)) {
-                fprintf(stderr, "unbound function: %s\n", car(v)->sym);
-                exit(1);
+        if (is_func(f)) {
+            Value *bindings = zip(f->func.params, evlis(cdr(v), env));
+            Value *bound = append(bindings, f->func.env);
+
+            Value *res;
+            for (Value *e = f->func.body; is_list(e); e = cdr(e)) {
+                res = eval(car(e), bound);
             }
 
-            return eval(cons(f, cdr(v)), env);
+            return res;
+        } else {
+            fprintf(stderr, "not a function: ");
+            fprint(stderr, car(v));
+            exit(1);
         }
-    } else if (is_list(v) && caar(v) == intern("label")) {
-        return eval(
-            cons(caddar(v), cdr(v)),
-            cons(cons(cadar(v), cons(car(v), NULL)), env));
-    } else if (is_list(v) && caar(v) == intern("lambda")) {
-        Value *bindings = zip(cadar(v), evlis(cdr(v), env));
-
-        return eval(caddar(v), append(bindings, env));
-    } else if (is_list(v)) {
-        fprintf(stderr, "expected function, got: ");
-        fprint(stderr, car(v));
-        exit(1);
     } else if (is_sym(v)) {
         Value *res = assoc(v, env);
 
@@ -500,7 +529,6 @@ main(int argc, char *argv[])
 
     env = cons(cons(intern("foo"), cons(intern("bar"), NULL)), env);
     env = cons(cons(intern("a"), cons(cons(intern("x"), cons(intern("y"), cons(intern("z"), NULL))), NULL)), env);
-    env = cons(cons(intern("cadr"), cons(cons(intern("lambda"), cons(cons(intern("l"), NULL), cons(cons(intern("car"), cons(cons(intern("cdr"), cons(intern("l"), NULL)), NULL)), NULL))), NULL)), env);
 
     while (peek(stdin) != EOF) {
         Value *v = read1(stdin);
