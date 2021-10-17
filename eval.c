@@ -55,13 +55,6 @@ struct Value {
     };
 };
 
-Value *s_t;
-Value *t; // s_t
-Value *s_lambda;
-Value *s_quote;
-Value *s_cond;
-Value *s_def;
-
 void *
 xalloc(size_t size)
 {
@@ -559,17 +552,18 @@ eq(Value *x, Value *y)
 
 Env *globals = NULL;
 
+Value *s_t;
+Value *t; // s_t
+Value *s_lambda;
+Value *s_quote;
+Value *s_cond;
+Value *s_def;
+
 Value *
 eval(Value *v, Env *env)
 {
     if (is_pair(v) && car(v) == s_quote) {
         return cadr(v);
-    } else if (is_pair(v) && car(v) == intern("atom")) {
-        return is_sym(eval(cadr(v), env)) ? s_t : NULL;
-    } else if (is_pair(v) && car(v) == intern("eq")) {
-        return eq(eval(cadr(v), env), eval(caddr(v), env));
-    } else if (is_pair(v) && car(v) == intern("cons")) {
-        return cons(eval(cadr(v), env), eval(caddr(v), env));
     } else if (is_pair(v) && car(v) == s_cond) {
         return evcon(cdr(v), env);
     } else if (is_pair(v) && car(v) == s_lambda) {
@@ -659,9 +653,16 @@ arity(Value *args, int expected, char *name)
         return name(car(args)); \
     }
 
+#define builtin2(name) \
+    Value *builtin_##name(Value *args) { \
+        arity(args, 2, #name); \
+        return name(car(args), cadr(args)); \
+    }
 
 builtin1(car)
 builtin1(cdr)
+builtin2(cons)
+
 pred(nil)
 pred(sym)
 pred(int)
@@ -669,7 +670,7 @@ pred(pair)
 pred(func)
 pred(builtin)
 
-#define def_symbol(name) s_##name = intern(#name)
+#define symbol(name) s_##name = intern(#name)
 #define def_builtin(name) def(intern(#name), mkbuiltin(#name, builtin_##name), globals)
 #define def_pred(name) def(intern(#name "?"), mkbuiltin(#name "?", builtin_is_##name), globals)
 
@@ -678,14 +679,18 @@ main(int argc, char *argv[])
 {
     globals = clone(NULL);
 
-    def_symbol(t); t = s_t;
-    def_symbol(quote);
-    def_symbol(cond);
-    def_symbol(lambda);
-    def_symbol(def);
+    symbol(t); t = s_t;
+    def(t, t, globals);
+
+    symbol(quote);
+    symbol(cond);
+    symbol(lambda);
+    symbol(def);
 
     def_builtin(car);
     def_builtin(cdr);
+    def_builtin(cons);
+
     def_pred(nil);
     def_pred(sym);
     def_pred(int);
