@@ -7,12 +7,12 @@
 #include <string.h>
 
 enum Type {
+    UNDEFINED, // returned by assoc and lookup if key is not found
     SYM,
     INT,
     PAIR,
     BUILTIN,
     FUNC,
-    UNDEFINED // returned by assoc and lookup if key is not found
 };
 typedef enum Type Type;
 
