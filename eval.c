@@ -9,6 +9,7 @@ enum Type {
     SYM,
     INT,
     LIST,
+    BUILTIN,
     FUNC
 };
 typedef enum Type Type;
@@ -34,6 +35,8 @@ struct Func {
 };
 typedef struct Func Func;
 
+typedef Value *(*Builtin)(Value *args);
+
 struct Value {
     Type type;
     union {
@@ -41,6 +44,7 @@ struct Value {
         int n;
         List list;
         Func func;
+        Builtin builtin;
     };
 };
 
@@ -88,6 +92,11 @@ is_list(Value *v) {
 int
 is_func(Value *v) {
     return !is_nil(v) && v->type == FUNC;
+}
+
+int
+is_builtin(Value *v) {
+    return !is_nil(v) && v->type == BUILTIN;
 }
 
 Value *
@@ -173,6 +182,14 @@ mkfunc(Value *params, Value *body, Env *env)
     return v;
 }
 
+Value *
+mkbuiltin(Builtin f)
+{
+    Value *v = alloc(BUILTIN);
+    v->builtin = f;
+    return v;
+}
+
 Value *symtab = NULL;
 
 Value *
@@ -215,6 +232,8 @@ fprint0(FILE *stream, Value *v, int depth)
         fprintf(stream, "%d", v->n);
     } else if (is_func(v)) {
         fprintf(stream, "#<function>");
+    } else if (is_builtin(v)) {
+        fprintf(stream, "#<builtin>");
     } else if (is_list(v)){
         fprintf(stream, "(");
         fprint0(stream, v->list.car, depth+1);
@@ -518,10 +537,6 @@ eval(Value *v, Env *env)
         return is_sym(eval(cadr(v), env)) ? intern("t") : NULL;
     } else if (is_list(v) && car(v) == intern("eq")) {
         return eq(eval(cadr(v), env), eval(caddr(v), env));
-    } else if (is_list(v) && car(v) == intern("car")) {
-        return car(eval(cadr(v), env));
-    } else if (is_list(v) && car(v) == intern("cdr")) {
-        return cdr(eval(cadr(v), env));
     } else if (is_list(v) && car(v) == intern("cons")) {
         return cons(eval(cadr(v), env), eval(caddr(v), env));
     } else if (is_list(v) && car(v) == intern("cond")) {
@@ -559,6 +574,8 @@ eval(Value *v, Env *env)
             }
 
             return res;
+        } else if (is_builtin(f)) {
+            return f->builtin(evlis(cdr(v), env));
         } else {
             fprintf(stderr, "not a function: ");
             fprint(stderr, car(v));
@@ -579,9 +596,53 @@ eval(Value *v, Env *env)
 }
 
 int
+len(Value *l)
+{
+    if (!is_list(l)) {
+        return 0;
+    } else {
+        return 1 + len(cdr(l));
+    }
+}
+
+void
+arity(Value *args, int expected, char *name)
+{
+    int actual = len(args);
+
+    if (actual != expected) {
+        fprintf(stderr, "%s: expected %d arguments, got %d\n", name, expected, actual);
+        exit(1);
+    }
+}
+
+void
+arity1(Value *args, char *name)
+{
+    arity(args, 1, name);
+}
+
+Value *
+builtin_car(Value *args)
+{
+    arity1(args, "car");
+    return car(car(args));
+}
+
+Value *
+builtin_cdr(Value *args)
+{
+    arity1(args, "cdr");
+    return cdr(car(args));
+}
+
+int
 main(int argc, char *argv[])
 {
     globals = clone(NULL);
+
+    def(intern("car"), mkbuiltin(builtin_car), globals);
+    def(intern("cdr"), mkbuiltin(builtin_cdr), globals);
 
     while (peek(stdin) != EOF) {
         Value *v = read1(stdin);
