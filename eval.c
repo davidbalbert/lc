@@ -623,27 +623,16 @@ arity(Value *args, int expected, char *name)
     }
 }
 
-void
-arity1(Value *args, char *name)
-{
-    arity(args, 1, name);
-}
-
 #define builtin(name) def(intern(#name), mkbuiltin(#name, builtin_##name), globals)
 
-Value *
-builtin_car(Value *args)
-{
-    arity1(args, "car");
-    return car(car(args));
-}
+#define builtin1(name) \
+    Value *builtin_##name(Value *args) { \
+        arity(args, 1, #name); \
+        return name(car(args)); \
+    }
 
-Value *
-builtin_cdr(Value *args)
-{
-    arity1(args, "cdr");
-    return cdr(car(args));
-}
+builtin1(car)
+builtin1(cdr)
 
 int
 main(int argc, char *argv[])
