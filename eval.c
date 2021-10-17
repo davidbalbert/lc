@@ -29,6 +29,7 @@ struct Env {
 };
 
 struct Func {
+    Value *name;
     Value *params;
     Value *body;
     Env *env;
@@ -189,6 +190,7 @@ Value *
 mkfunc(Value *params, Value *body, Env *env)
 {
     Value *v = alloc(FUNC);
+    v->func.name = NULL;
     v->func.params = params;
     v->func.body = body;
     v->func.env = env;
@@ -245,7 +247,13 @@ fprint0(FILE *stream, Value *v, int depth)
     } else if (is_int(v)) {
         fprintf(stream, "%d", v->n);
     } else if (is_func(v)) {
-        fprintf(stream, "#<function>");
+        fprintf(stream, "#<function ");
+        if (v->func.name != NULL) {
+            fprintf(stream, "%s", v->func.name->sym);
+        } else {
+            fprintf(stream, "(anonymous)");
+        }
+        fprintf(stream, ">");
     } else if (is_builtin(v)) {
         fprintf(stream, "#<builtin %s>", v->builtin.name);
     } else if (is_pair(v)){
@@ -497,10 +505,19 @@ lookup(Value *name, Env *env)
     return NULL;
 }
 
+void
+setname(Value *name, Value *value)
+{
+    if (is_func(value)) {
+        value->func.name = name;
+    }
+}
+
 Value *
 def(Value *name, Value *value, Env *env)
 {
     env->bindings = cons(cons(name, cons(value, NULL)), env->bindings);
+    setname(name, value);
     return value;
 }
 
