@@ -642,6 +642,17 @@ arity(Value *args, int expected, char *name)
     }
 }
 
+void
+varity(Value *args, int min, char *name)
+{
+    int actual = length(args);
+
+    if (actual < min) {
+        fprintf(stderr, "%s: expected %d arguments, got %d\n", name, min, actual);
+        exit(1);
+    }
+}
+
 int
 allints(Value *l)
 {
@@ -684,17 +695,29 @@ allints(Value *l)
 
 #define comp(op, name) \
     Value *builtin_##name(Value *args) { \
-        arity(args, 2, #op); \
-        Value *x = car(args); \
-        Value *y = cadr(args); \
-        if (!is_int(x) || !is_int(y)) return NULL; \
-        return car(args)->n op cadr(args)->n ? t : NULL; \
+        if (!allints(args)) return NULL; \
+        if (length(args) == 0) return t; \
+        Value *last = car(args); \
+        for (args = cdr(args); args != NULL; args = cdr(args)) { \
+            if (!(last->n op car(args)->n)) { \
+                return NULL; \
+            } \
+            last = car(args); \
+        } \
+        return t; \
     }
 
 builtin1(car)
 builtin1(cdr)
 builtin2(cons)
 builtin2(is_eq)
+
+Value *
+builtin_length(Value *args)
+{
+    arity(args, 1, "length");
+    return mkint(length(car(args)));
+}
 
 pred(nil)
 pred(sym)
@@ -706,6 +729,30 @@ pred(builtin)
 op(+, plus, 0)
 op(-, minus, 0)
 op(*, times, 1)
+
+Value *
+builtin_divide(Value *args)
+{
+    varity(args, 1, "/");
+
+    if (!allints(args)) return NULL;
+
+    if (car(args)->n == 0) {
+        fprintf(stderr, "division by zero\n");
+        exit(1);
+    } else if (length(args) == 1) {
+        // In CL and Scheme, (/ 5) => 1/5, but we don't support
+        // rationals, so we round down.
+        return mkint(0);
+    }
+
+    int res = car(args)->n;
+    for (args = cdr(args); args != NULL; args = cdr(args)) {
+        res /= car(args)->n;
+    }
+
+    return mkint(res);
+}
 
 comp(>, gt)
 comp(<, lt)
@@ -733,6 +780,7 @@ main(int argc, char *argv[])
     def_builtin(car);
     def_builtin(cdr);
     def_builtin(cons);
+    def_builtin(length);
 
     def_pred(nil);
     def_pred(sym);
@@ -746,6 +794,8 @@ main(int argc, char *argv[])
     def_op(+, plus);
     def_op(-, minus);
     def_op(*, times);
+    def_op(/, divide);
+
     def_op(>, gt);
     def_op(<, lt);
     def_op(>=, ge);
