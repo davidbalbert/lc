@@ -159,6 +159,12 @@ caddr(Value *v)
 }
 
 Value *
+cdddr(Value *v)
+{
+    return cdr(cdr(cdr(v)));
+}
+
+Value *
 caddar(Value *v)
 {
     return car(cdr(cdr(car(v))));
@@ -528,6 +534,21 @@ def(Value *name, Value *value, Env *env)
     return value;
 }
 
+int
+length(Value *l)
+{
+    if (!is_pair(l)) {
+        return 0;
+    }
+
+    int len = 0;
+    for (; l != NULL; l = cdr(l)) {
+        len++;
+    }
+
+    return len;
+}
+
 Value *eval(Value *v, Env *env);
 
 Value *
@@ -558,7 +579,7 @@ Env *globals = NULL;
 
 Value *s_t;
 Value *t; // s_t
-Value *s_lambda;
+Value *s_fn;
 Value *s_quote;
 Value *s_cond;
 Value *s_def;
@@ -570,8 +591,11 @@ eval(Value *v, Env *env)
         return cadr(v);
     } else if (is_pair(v) && car(v) == s_cond) {
         return evcon(cdr(v), env);
-    } else if (is_pair(v) && car(v) == s_lambda) {
+    } else if (is_pair(v) && car(v) == s_fn) {
         return mkfunc(cadr(v), cddr(v), env);
+    } else if (is_pair(v) && car(v) == s_def && length(v) > 3) {
+        // short form lambda definition, e.g. (def inc (x) (+ 1 x))
+        return eval(cons(s_def, cons(cadr(v), cons(cons(s_fn, cons(caddr(v), cdddr(v))), NULL))), env);
     } else if (is_pair(v) && car(v) == s_def) {
         Value *name = cadr(v);
         Value *val = eval(caddr(v), env);
@@ -632,17 +656,6 @@ is_eq(Value *x, Value *y)
     } else {
         return NULL;
     }
-}
-
-int
-length(Value *l)
-{
-    int len = 0;
-    for (; l != NULL; l = cdr(l)) {
-        len++;
-    }
-
-    return len;
 }
 
 void
@@ -791,7 +804,7 @@ main(int argc, char *argv[])
 
     symbol(quote);
     symbol(cond);
-    symbol(lambda);
+    symbol(fn);
     symbol(def);
 
     def_builtin(car);
