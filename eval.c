@@ -54,6 +54,13 @@ struct Value {
     };
 };
 
+Value *s_t;
+Value *t; // s_t
+Value *s_lambda;
+Value *s_quote;
+Value *s_cond;
+Value *s_def;
+
 void *
 xalloc(size_t size)
 {
@@ -538,19 +545,19 @@ Env *globals = NULL;
 Value *
 eval(Value *v, Env *env)
 {
-    if (is_pair(v) && car(v) == intern("quote")) {
+    if (is_pair(v) && car(v) == s_quote) {
         return cadr(v);
     } else if (is_pair(v) && car(v) == intern("atom")) {
-        return is_sym(eval(cadr(v), env)) ? intern("t") : NULL;
+        return is_sym(eval(cadr(v), env)) ? s_t : NULL;
     } else if (is_pair(v) && car(v) == intern("eq")) {
         return eq(eval(cadr(v), env), eval(caddr(v), env));
     } else if (is_pair(v) && car(v) == intern("cons")) {
         return cons(eval(cadr(v), env), eval(caddr(v), env));
-    } else if (is_pair(v) && car(v) == intern("cond")) {
+    } else if (is_pair(v) && car(v) == s_cond) {
         return evcon(cdr(v), env);
-    } else if (is_pair(v) && car(v) == intern("lambda")) {
+    } else if (is_pair(v) && car(v) == s_lambda) {
         return mkfunc(cadr(v), cddr(v), env);
-    } else if (is_pair(v) && car(v) == intern("def")) {
+    } else if (is_pair(v) && car(v) == s_def) {
         Value *name = cadr(v);
         Value *val = eval(caddr(v), env);
 
@@ -623,7 +630,11 @@ arity(Value *args, int expected, char *name)
     }
 }
 
-#define builtin(name) def(intern(#name), mkbuiltin(#name, builtin_##name), globals)
+#define pred(name) \
+    Value *builtin_is_##name(Value *args) { \
+        arity(args, 1, #name); \
+        return is_##name(car(args)) ? s_t : NULL; \
+    }
 
 #define builtin1(name) \
     Value *builtin_##name(Value *args) { \
@@ -631,16 +642,39 @@ arity(Value *args, int expected, char *name)
         return name(car(args)); \
     }
 
+
 builtin1(car)
 builtin1(cdr)
+pred(nil)
+pred(sym)
+pred(int)
+pred(pair)
+pred(func)
+pred(builtin)
+
+#define def_symbol(name) s_##name = intern(#name)
+#define def_builtin(name) def(intern(#name), mkbuiltin(#name, builtin_##name), globals)
+#define def_pred(name) def(intern(#name "?"), mkbuiltin(#name "?", builtin_is_##name), globals)
 
 int
 main(int argc, char *argv[])
 {
     globals = clone(NULL);
 
-    builtin(car);
-    builtin(cdr);
+    def_symbol(t); t = s_t;
+    def_symbol(quote);
+    def_symbol(cond);
+    def_symbol(lambda);
+    def_symbol(def);
+
+    def_builtin(car);
+    def_builtin(cdr);
+    def_pred(nil);
+    def_pred(sym);
+    def_pred(int);
+    def_pred(pair);
+    def_pred(func);
+    def_pred(builtin);
 
     while (peek(stdin) != EOF) {
         Value *v = read1(stdin);
