@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <errno.h>
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -48,7 +49,7 @@ struct Value {
     Type type;
     union {
         char *sym;
-        int n;
+        long long n;
         Pair pair;
         Func func;
         Builtin builtin;
@@ -172,7 +173,7 @@ cons(Value *car, Value *cdr)
 }
 
 Value *
-mkint(int n)
+mkint(long long n)
 {
     Value *v = alloc(INT);
     v->n = n;
@@ -238,7 +239,7 @@ fprint0(FILE *stream, Value *v, int depth)
     } else if (is_sym(v)) {
         fprintf(stream, "%s", v->sym);
     } else if (is_int(v)) {
-        fprintf(stream, "%d", v->n);
+        fprintf(stream, "%lld", v->n);
     } else if (is_func(v)) {
         fprintf(stream, "#<function ");
         if (v->func.name != NULL) {
@@ -372,8 +373,19 @@ is_symstart(int c)
     return is_symchar(c) && !isdigit(c);
 }
 
-#define MAX_INTLEN 10
+#define MAX_INTLEN 20 // includes optional leading -
 #define MAX_SYMLEN 1024
+
+long long
+parseint(char *s)
+{
+    long long n = strtol(s, NULL, 10);
+    if (errno == ERANGE) {
+        fprintf(stderr, "integer too big '%s'\n", s);
+        exit(1);
+    }
+    return n;
+}
 
 Value *
 read1(FILE *stream)
@@ -387,24 +399,23 @@ read1(FILE *stream)
         return readlist(stream, 1);
     } else if (c == '\'') {
         return cons(intern("quote"), cons(read1(stream), NULL));
-    } else if (isdigit(c)) {
+    } else if ((c == '-' && isdigit(peek(stream))) || isdigit(c)) {
         char buf[MAX_INTLEN+1];
 
-        int i;
-        for (i = 0; isdigit(c); i++) {
-            buf[i] = c;
-            c = fgetc(stream);
-
+        int i = 0;
+        do {
             if (i == MAX_INTLEN) {
                 fprintf(stderr, "integer too long\n");
                 exit(1);
             }
-        }
+            buf[i++] = c;
+            c = fgetc(stream);
+        } while (isdigit(c));
 
         buf[i] = '\0';
         xungetc(c, stream);
 
-        return mkint(atoi(buf));
+        return mkint(parseint(buf));
     } else if (is_symstart(c)) {
         char buf[MAX_SYMLEN+1];
 
@@ -665,12 +676,6 @@ allints(Value *l)
     return 1;
 }
 
-#define pred(name) \
-    Value *builtin_is_##name(Value *args) { \
-        arity(args, 1, #name); \
-        return is_##name(car(args)) ? s_t : NULL; \
-    }
-
 #define builtin1(name) \
     Value *builtin_##name(Value *args) { \
         arity(args, 1, #name); \
@@ -683,10 +688,16 @@ allints(Value *l)
         return name(car(args), cadr(args)); \
     }
 
+#define pred(name) \
+    Value *builtin_is_##name(Value *args) { \
+        arity(args, 1, #name); \
+        return is_##name(car(args)) ? s_t : NULL; \
+    }
+
 #define op(op, name, init) \
     Value *builtin_##name(Value *args) { \
         if (!allints(args)) return NULL; \
-        int res = init; \
+        long long res = init; \
         for (; args != NULL; args = cdr(args)) { \
             res = res op car(args)->n; \
         } \
@@ -746,7 +757,7 @@ builtin_divide(Value *args)
         return mkint(0);
     }
 
-    int res = car(args)->n;
+    long long res = car(args)->n;
     for (args = cdr(args); args != NULL; args = cdr(args)) {
         res /= car(args)->n;
     }
