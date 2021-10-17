@@ -313,6 +313,8 @@ read1(FILE *stream)
         return NULL;
     } else if (c == '(') {
         return readlist(stream, 1);
+    } else if (c == '\'') {
+        return cons(intern("quote"), cons(read1(stream), NULL));
     } else if (isdigit(c)) {
         char buf[MAX_INTLEN+1];
 
