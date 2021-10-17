@@ -8,19 +8,19 @@
 enum Type {
     SYM,
     INT,
-    LIST,
+    PAIR,
     BUILTIN,
     FUNC
 };
 typedef enum Type Type;
 
 typedef struct Value Value;
-typedef struct List List;
 
-struct List {
+struct Pair {
     Value *car;
     Value *cdr;
 };
+typedef struct Pair Pair;
 
 typedef struct Env Env;
 struct Env {
@@ -48,7 +48,7 @@ struct Value {
     union {
         char *sym;
         int n;
-        List list;
+        Pair pair;
         Func func;
         Builtin builtin;
     };
@@ -91,8 +91,8 @@ is_int(Value *v) {
 }
 
 int
-is_list(Value *v) {
-    return !is_nil(v) && v->type == LIST;
+is_pair(Value *v) {
+    return !is_nil(v) && v->type == PAIR;
 }
 
 int
@@ -108,8 +108,8 @@ is_builtin(Value *v) {
 Value *
 car(Value *v)
 {
-    if (is_list(v)) {
-        return v->list.car;
+    if (is_pair(v)) {
+        return v->pair.car;
     } else {
         return NULL;
     }
@@ -118,8 +118,8 @@ car(Value *v)
 Value *
 cdr(Value *v)
 {
-    if (is_list(v)) {
-        return v->list.cdr;
+    if (is_pair(v)) {
+        return v->pair.cdr;
     } else {
         return NULL;
     }
@@ -164,9 +164,9 @@ caddar(Value *v)
 Value *
 cons(Value *car, Value *cdr)
 {
-    Value *v = alloc(LIST);
-    v->list.car = car;
-    v->list.cdr = cdr;
+    Value *v = alloc(PAIR);
+    v->pair.car = car;
+    v->pair.cdr = cdr;
     return v;
 }
 
@@ -204,17 +204,17 @@ intern(char *s)
 {
     Value *l = symtab;
 
-    assert(is_nil(l) || is_list(l));
+    assert(is_nil(l) || is_pair(l));
 
     while (!is_nil(l)) {
-        Value *sym = l->list.car;
+        Value *sym = l->pair.car;
         assert(is_sym(sym));
 
         if (strcmp(sym->sym, s) == 0) {
             return sym;
         }
 
-        l = l->list.cdr;
+        l = l->pair.cdr;
     }
 
     Value *v = alloc(SYM);
@@ -241,15 +241,15 @@ fprint0(FILE *stream, Value *v, int depth)
         fprintf(stream, "#<function>");
     } else if (is_builtin(v)) {
         fprintf(stream, "#<builtin %s>", v->builtin.name);
-    } else if (is_list(v)){
+    } else if (is_pair(v)){
         fprintf(stream, "(");
-        fprint0(stream, v->list.car, depth+1);
+        fprint0(stream, v->pair.car, depth+1);
 
-        Value *cdr = v->list.cdr;
-        while (is_list(cdr)) {
+        Value *cdr = v->pair.cdr;
+        while (is_pair(cdr)) {
             fprintf(stream, " ");
-            fprint0(stream, cdr->list.car, depth+1);
-            cdr = cdr->list.cdr;
+            fprint0(stream, cdr->pair.car, depth+1);
+            cdr = cdr->pair.cdr;
         }
 
         if (!is_nil(cdr)) {
@@ -424,7 +424,7 @@ read1(FILE *stream)
 Value *
 assoc(Value *v, Value *l)
 {
-    if (!is_list(l) && !is_nil(l)) {
+    if (!is_pair(l) && !is_nil(l)) {
         fprintf(stderr, "assoc: expected list\n");
         exit(1);
     }
@@ -455,7 +455,7 @@ zip(Value *x, Value *y)
 {
     if (is_nil(x) && is_nil(y)) {
         return NULL;
-    } else if (is_list(x) && is_list(y)) {
+    } else if (is_pair(x) && is_pair(y)) {
         return cons(cons(car(x), cons(car(y), NULL)), zip(cdr(x), cdr(y)));
     } else if (is_nil(x) || is_nil(y)){
         fprintf(stderr, "zip: lists not the same length\n");
@@ -502,7 +502,7 @@ Value *eval(Value *v, Env *env);
 Value *
 evcon(Value *conditions, Env *env)
 {
-    assert(is_list(conditions) || is_nil(conditions));
+    assert(is_pair(conditions) || is_nil(conditions));
 
     if (eval(caar(conditions), env)) {
         return eval(cadar(conditions), env);
@@ -514,7 +514,7 @@ evcon(Value *conditions, Env *env)
 Value *
 evlis(Value *params, Env *env)
 {
-    assert(is_list(params) || is_nil(params));
+    assert(is_pair(params) || is_nil(params));
 
     if (is_nil(params)) {
         return NULL;
@@ -538,19 +538,19 @@ Env *globals = NULL;
 Value *
 eval(Value *v, Env *env)
 {
-    if (is_list(v) && car(v) == intern("quote")) {
+    if (is_pair(v) && car(v) == intern("quote")) {
         return cadr(v);
-    } else if (is_list(v) && car(v) == intern("atom")) {
+    } else if (is_pair(v) && car(v) == intern("atom")) {
         return is_sym(eval(cadr(v), env)) ? intern("t") : NULL;
-    } else if (is_list(v) && car(v) == intern("eq")) {
+    } else if (is_pair(v) && car(v) == intern("eq")) {
         return eq(eval(cadr(v), env), eval(caddr(v), env));
-    } else if (is_list(v) && car(v) == intern("cons")) {
+    } else if (is_pair(v) && car(v) == intern("cons")) {
         return cons(eval(cadr(v), env), eval(caddr(v), env));
-    } else if (is_list(v) && car(v) == intern("cond")) {
+    } else if (is_pair(v) && car(v) == intern("cond")) {
         return evcon(cdr(v), env);
-    } else if (is_list(v) && car(v) == intern("lambda")) {
+    } else if (is_pair(v) && car(v) == intern("lambda")) {
         return mkfunc(cadr(v), cddr(v), env);
-    } else if (is_list(v) && car(v) == intern("def")) {
+    } else if (is_pair(v) && car(v) == intern("def")) {
         Value *name = cadr(v);
         Value *val = eval(caddr(v), env);
 
@@ -567,7 +567,7 @@ eval(Value *v, Env *env)
         }
 
         return def(name, val, globals);
-    } else if (is_list(v)) {
+    } else if (is_pair(v)) {
         Value *f = eval(car(v), env);
 
         if (is_func(f)) {
@@ -576,7 +576,7 @@ eval(Value *v, Env *env)
             newenv->bindings = bindings;
 
             Value *res;
-            for (Value *e = f->func.body; is_list(e); e = cdr(e)) {
+            for (Value *e = f->func.body; is_pair(e); e = cdr(e)) {
                 res = eval(car(e), newenv);
             }
 
@@ -605,7 +605,7 @@ eval(Value *v, Env *env)
 int
 len(Value *l)
 {
-    if (!is_list(l)) {
+    if (!is_pair(l)) {
         return 0;
     } else {
         return 1 + len(cdr(l));
