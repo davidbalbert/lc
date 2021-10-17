@@ -35,7 +35,13 @@ struct Func {
 };
 typedef struct Func Func;
 
-typedef Value *(*Builtin)(Value *args);
+typedef Value *(*imp)(Value *args);
+
+struct Builtin {
+    char *name;
+    imp f;
+};
+typedef struct Builtin Builtin;
 
 struct Value {
     Type type;
@@ -183,10 +189,11 @@ mkfunc(Value *params, Value *body, Env *env)
 }
 
 Value *
-mkbuiltin(Builtin f)
+mkbuiltin(char *name, imp f)
 {
     Value *v = alloc(BUILTIN);
-    v->builtin = f;
+    v->builtin.name = name;
+    v->builtin.f = f;
     return v;
 }
 
@@ -233,7 +240,7 @@ fprint0(FILE *stream, Value *v, int depth)
     } else if (is_func(v)) {
         fprintf(stream, "#<function>");
     } else if (is_builtin(v)) {
-        fprintf(stream, "#<builtin>");
+        fprintf(stream, "#<builtin %s>", v->builtin.name);
     } else if (is_list(v)){
         fprintf(stream, "(");
         fprint0(stream, v->list.car, depth+1);
@@ -575,7 +582,7 @@ eval(Value *v, Env *env)
 
             return res;
         } else if (is_builtin(f)) {
-            return f->builtin(evlis(cdr(v), env));
+            return f->builtin.f(evlis(cdr(v), env));
         } else {
             fprintf(stderr, "not a function: ");
             fprint(stderr, car(v));
@@ -622,6 +629,8 @@ arity1(Value *args, char *name)
     arity(args, 1, name);
 }
 
+#define builtin(name) def(intern(#name), mkbuiltin(#name, builtin_##name), globals)
+
 Value *
 builtin_car(Value *args)
 {
@@ -641,8 +650,8 @@ main(int argc, char *argv[])
 {
     globals = clone(NULL);
 
-    def(intern("car"), mkbuiltin(builtin_car), globals);
-    def(intern("cdr"), mkbuiltin(builtin_cdr), globals);
+    builtin(car);
+    builtin(cdr);
 
     while (peek(stdin) != EOF) {
         Value *v = read1(stdin);
