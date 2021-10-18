@@ -767,9 +767,12 @@ allints(Value *l)
 
 #define op(op, name, init) \
     Value *builtin_##name(Value *args) { \
-        if (!allints(args)) return NULL; \
-        long long res = init; \
-        for (; args != NULL; args = cdr(args)) { \
+        if (!allints(args)) { return NULL; } \
+        int len = length(args); \
+        if (len == 0) { return mkint(init op init); } \
+        if (len == 1) { return mkint(init op car(args)->n); } \
+        long long res = car(args)->n; \
+        for (args = cdr(args); args != NULL; args = cdr(args)) { \
             res = res op car(args)->n; \
         } \
         return mkint(res); \
@@ -777,8 +780,8 @@ allints(Value *l)
 
 #define comp(op, name) \
     Value *builtin_##name(Value *args) { \
-        if (!allints(args)) return NULL; \
-        if (length(args) == 0) return t; \
+        if (!allints(args)) { return NULL; } \
+        if (length(args) == 0) { return t; } \
         Value *last = car(args); \
         for (args = cdr(args); args != NULL; args = cdr(args)) { \
             if (!(last->n op car(args)->n)) { \
@@ -812,30 +815,15 @@ pred2(eqv)
 pred2(equal)
 
 op(+, plus, 0)
+op(-, minus, 0)
 op(*, times, 1)
-
-Value *
-builtin_minus(Value *args)
-{
-    if (!allints(args)) { return NULL; }
-
-    int len = length(args);
-    if (len == 0) { return mkint(0); }
-    if (len == 1) { return mkint(-car(args)->n); }
-
-    long long res = car(args)->n;
-    for (args = cdr(args); args != NULL; args = cdr(args)) {
-        res -= car(args)->n;
-    }
-    return mkint(res);
-}
 
 Value *
 builtin_divide(Value *args)
 {
     varity(args, 1, "/");
 
-    if (!allints(args)) return NULL;
+    if (!allints(args)) { return NULL; }
 
     if (car(args)->n == 0) {
         fprintf(stderr, "division by zero\n");
