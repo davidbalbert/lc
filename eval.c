@@ -817,29 +817,21 @@ pred2(equal)
 op(+, plus, 0)
 op(-, minus, 0)
 op(*, times, 1)
+op(/, divide_, 1)
 
 Value *
 builtin_divide(Value *args)
 {
     varity(args, 1, "/");
 
-    if (!allints(args)) { return NULL; }
-
-    if (car(args)->n == 0) {
-        fprintf(stderr, "division by zero\n");
-        exit(1);
-    } else if (length(args) == 1) {
-        // In CL and Scheme, (/ 5) => 1/5, but we don't support
-        // rationals, so we round down.
-        return mkint(0);
+    for (Value *a = args; is_pair(a); a = cdr(a)) {
+        if (car(a)->n == 0) {
+            fprintf(stderr, "/: division by zero\n");
+            exit(1);
+        }
     }
 
-    long long res = car(args)->n;
-    for (args = cdr(args); args != NULL; args = cdr(args)) {
-        res /= car(args)->n;
-    }
-
-    return mkint(res);
+    return builtin_divide_(args);
 }
 
 comp(>, gt)
