@@ -8,8 +8,8 @@
 
 enum Type {
     UNDEFINED, // returned by assoc and lookup if key is not found
-    SYM,
-    INT,
+    SYMBOL,
+    INTEGER,
     PAIR,
     BUILTIN,
     FUNC,
@@ -84,13 +84,13 @@ is_nil(Value *v) {
 }
 
 int
-is_sym(Value *v) {
-    return !is_nil(v) && v->type == SYM;
+is_symbol(Value *v) {
+    return !is_nil(v) && v->type == SYMBOL;
 }
 
 int
-is_int(Value *v) {
-    return !is_nil(v) && v->type == INT;
+is_integer(Value *v) {
+    return !is_nil(v) && v->type == INTEGER;
 }
 
 int
@@ -99,13 +99,18 @@ is_pair(Value *v) {
 }
 
 int
-is_func(Value *v) {
+is_function(Value *v) {
     return !is_nil(v) && v->type == FUNC;
 }
 
 int
 is_builtin(Value *v) {
     return !is_nil(v) && v->type == BUILTIN;
+}
+
+int
+is_procedure(Value *v) {
+    return is_function(v) || is_builtin(v);
 }
 
 Value *
@@ -182,7 +187,7 @@ cons(Value *car, Value *cdr)
 Value *
 mkint(long long n)
 {
-    Value *v = alloc(INT);
+    Value *v = alloc(INTEGER);
     v->n = n;
     return v;
 }
@@ -218,7 +223,7 @@ intern(char *s)
 
     while (!is_nil(l)) {
         Value *sym = l->pair.car;
-        assert(is_sym(sym));
+        assert(is_symbol(sym));
 
         if (strcmp(sym->sym, s) == 0) {
             return sym;
@@ -227,7 +232,7 @@ intern(char *s)
         l = l->pair.cdr;
     }
 
-    Value *v = alloc(SYM);
+    Value *v = alloc(SYMBOL);
 
     size_t len = strlen(s);
     char *s1 = xalloc(len + 1);
@@ -243,11 +248,11 @@ fprint0(FILE *stream, Value *v, int depth)
 {
     if (is_nil(v)) {
         fprintf(stream, "nil");
-    } else if (is_sym(v)) {
+    } else if (is_symbol(v)) {
         fprintf(stream, "%s", v->sym);
-    } else if (is_int(v)) {
+    } else if (is_integer(v)) {
         fprintf(stream, "%lld", v->n);
-    } else if (is_func(v)) {
+    } else if (is_function(v)) {
         fprintf(stream, "#<function ");
         if (v->func.name != NULL) {
             fprintf(stream, "%s", v->func.name->sym);
@@ -497,7 +502,7 @@ void
 checkargs(Value *name, Value *params, Value *args)
 {
     // if it's a symbol, capture everything
-    if (is_sym(params)) {
+    if (is_symbol(params)) {
         return;
     }
 
@@ -507,7 +512,7 @@ checkargs(Value *name, Value *params, Value *args)
     for (Value *p = params; is_pair(p); p = cdr(p)) {
         nargs += 1;
 
-        if (is_sym(cdr(p))) {
+        if (is_symbol(cdr(p))) {
             varargs = 1;
         }
     }
@@ -528,7 +533,7 @@ zipargs(Value *x, Value *y)
 {
     if (is_nil(x) && is_nil(y)) {
         return NULL;
-    } else if (is_sym(x)) {
+    } else if (is_symbol(x)) {
         return cons(cons(x, cons(y, NULL)), NULL);
     } else if (is_pair(x) && is_pair(y)) {
         return cons(cons(car(x), cons(car(y), NULL)), zipargs(cdr(x), cdr(y)));
@@ -568,7 +573,7 @@ lookup(Value *name, Env *env)
 void
 setname(Value *name, Value *value)
 {
-    if (is_func(value)) {
+    if (is_function(value)) {
         value->func.name = name;
     }
 }
@@ -632,7 +637,7 @@ eval(Value *v, Env *env)
         Value *name = cadr(v);
         Value *val = eval(caddr(v), env);
 
-        if (!is_sym(name)) {
+        if (!is_symbol(name)) {
             fprintf(stderr, "def: expected symbol\n");
             exit(1);
         }
@@ -648,7 +653,7 @@ eval(Value *v, Env *env)
     } else if (is_pair(v)) {
         Value *f = eval(car(v), env);
 
-        if (is_func(f)) {
+        if (is_function(f)) {
             checkargs(f->func.name, f->func.params, cdr(v));
             Value *bindings = zipargs(f->func.params, evlis(cdr(v), env));
             Env *newenv = clone(f->func.env);
@@ -667,7 +672,7 @@ eval(Value *v, Env *env)
             fprint(stderr, car(v));
             exit(1);
         }
-    } else if (is_sym(v)) {
+    } else if (is_symbol(v)) {
         Value *res = lookup(v, env);
 
         if (res != undefined) {
@@ -690,7 +695,7 @@ is_eq(Value *x, Value *y)
 int
 is_eqv(Value *x, Value *y)
 {
-    if (is_int(x) && is_int(y)) {
+    if (is_integer(x) && is_integer(y)) {
         return x->n == y->n;
     } else {
         return is_eq(x, y);
@@ -733,7 +738,7 @@ int
 allints(Value *l)
 {
     for (; l != NULL; l = cdr(l)) {
-        if (!is_int(car(l))) {
+        if (!is_integer(car(l))) {
             return 0;
         }
     }
@@ -804,11 +809,12 @@ builtin_length(Value *args)
 }
 
 pred1(nil)
-pred1(sym)
-pred1(int)
+pred1(symbol)
+pred1(integer)
 pred1(pair)
-pred1(func)
+pred1(function)
 pred1(builtin)
+pred1(procedure)
 
 pred2(eq)
 pred2(eqv)
@@ -869,11 +875,12 @@ main(int argc, char *argv[])
     def_builtin(length);
 
     def_pred(nil);
-    def_pred(sym);
-    def_pred(int);
+    def_pred(symbol);
+    def_pred(integer);
     def_pred(pair);
-    def_pred(func);
+    def_pred(function);
     def_pred(builtin);
+    def_pred(procedure);
 
     def_pred(eq);
     def_pred(eqv);
