@@ -478,18 +478,65 @@ append(Value *x, Value *y)
     }
 }
 
+int
+length(Value *l)
+{
+    if (!is_pair(l)) {
+        return 0;
+    }
+
+    int len = 0;
+    for (; l != NULL; l = cdr(l)) {
+        len++;
+    }
+
+    return len;
+}
+
+void
+checkargs(Value *name, Value *params, Value *args)
+{
+    // if it's a symbol, capture everything
+    if (is_sym(params)) {
+        return;
+    }
+
+    int nargs = 0;
+    int varargs = 0;
+
+    for (Value *p = params; is_pair(p); p = cdr(p)) {
+        nargs += 1;
+
+        if (is_sym(cdr(p))) {
+            varargs = 1;
+        }
+    }
+
+    int len = length(args);
+
+    if (len < nargs && varargs) {
+        fprintf(stderr, "%s: expected %d or more arguments, got %d\n", name->sym, nargs, len);
+        exit(1);
+    } else if (len != nargs && !varargs) {
+        fprintf(stderr, "%s: expected %d arguments, got %d\n", name->sym, nargs, len);
+        exit(1);
+    }
+}
+
 Value *
-zip(Value *x, Value *y)
+zipargs(Value *x, Value *y)
 {
     if (is_nil(x) && is_nil(y)) {
         return NULL;
+    } else if (is_sym(x)) {
+        return cons(cons(x, cons(y, NULL)), NULL);
     } else if (is_pair(x) && is_pair(y)) {
-        return cons(cons(car(x), cons(car(y), NULL)), zip(cdr(x), cdr(y)));
-    } else if (is_nil(x) || is_nil(y)){
-        fprintf(stderr, "zip: lists not the same length\n");
+        return cons(cons(car(x), cons(car(y), NULL)), zipargs(cdr(x), cdr(y)));
+    } else if (is_nil(x) || is_nil(y)) {
+        fprintf(stderr, "zipargs: lists not the same length\n");
         exit(1);
     } else {
-        fprintf(stderr, "zip: expected list\n");
+        fprintf(stderr, "zipargs: expected list\n");
         exit(1);
     }
 }
@@ -532,21 +579,6 @@ def(Value *name, Value *value, Env *env)
     env->bindings = cons(cons(name, cons(value, NULL)), env->bindings);
     setname(name, value);
     return value;
-}
-
-int
-length(Value *l)
-{
-    if (!is_pair(l)) {
-        return 0;
-    }
-
-    int len = 0;
-    for (; l != NULL; l = cdr(l)) {
-        len++;
-    }
-
-    return len;
 }
 
 Value *eval(Value *v, Env *env);
@@ -617,7 +649,8 @@ eval(Value *v, Env *env)
         Value *f = eval(car(v), env);
 
         if (is_func(f)) {
-            Value *bindings = zip(f->func.params, evlis(cdr(v), env));
+            checkargs(f->func.name, f->func.params, cdr(v));
+            Value *bindings = zipargs(f->func.params, evlis(cdr(v), env));
             Env *newenv = clone(f->func.env);
             newenv->bindings = bindings;
 
