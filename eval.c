@@ -12,7 +12,7 @@ enum Type {
     INTEGER,
     PAIR,
     BUILTIN,
-    FUNC,
+    FUNCTION,
 };
 typedef enum Type Type;
 
@@ -100,7 +100,7 @@ is_pair(Value *v) {
 
 int
 is_function(Value *v) {
-    return !is_nil(v) && v->type == FUNC;
+    return !is_nil(v) && v->type == FUNCTION;
 }
 
 int
@@ -195,7 +195,7 @@ mkint(long long n)
 Value *
 mkfunc(Value *params, Value *body, Env *env)
 {
-    Value *v = alloc(FUNC);
+    Value *v = alloc(FUNCTION);
     v->func.name = NULL;
     v->func.params = params;
     v->func.body = body;
