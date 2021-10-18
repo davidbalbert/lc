@@ -687,6 +687,26 @@ is_eq(Value *x, Value *y)
     return x == y;
 }
 
+int
+is_eqv(Value *x, Value *y)
+{
+    if (is_int(x) && is_int(y)) {
+        return x->n == y->n;
+    } else {
+        return is_eq(x, y);
+    }
+}
+
+int
+is_equal(Value *x, Value *y)
+{
+    if (is_pair(x) && is_pair(y)) {
+        return is_equal(car(x), car(y)) && is_equal(cdr(x), cdr(y));
+    } else {
+        return is_eqv(x, y);
+    }
+}
+
 void
 arity(Value *args, int expected, char *name)
 {
@@ -786,7 +806,10 @@ pred1(int)
 pred1(pair)
 pred1(func)
 pred1(builtin)
+
 pred2(eq)
+pred2(eqv)
+pred2(equal)
 
 op(+, plus, 0)
 op(-, minus, 0)
@@ -820,6 +843,9 @@ comp(>, gt)
 comp(<, lt)
 comp(>=, ge)
 comp(<=, le)
+// == for the c operator, but = in def_op below for Lisp.
+// different from is_eq, which is eq?
+comp(==, eq)
 
 #define symbol(name) s_##name = intern(#name)
 #define def_builtin(name) def(intern(#name), mkbuiltin(#name, builtin_##name), globals)
@@ -855,6 +881,8 @@ main(int argc, char *argv[])
     def_pred(builtin);
 
     def_pred(eq);
+    def_pred(eqv);
+    def_pred(equal);
 
     def_op(+, plus);
     def_op(-, minus);
@@ -865,6 +893,8 @@ main(int argc, char *argv[])
     def_op(<, lt);
     def_op(>=, ge);
     def_op(<=, le);
+    // = for Lisp land, but == above in comp for the C operator.
+    def_op(=, eq);
 
     while (peek(stdin) != EOF) {
         Value *v = read1(stdin);
