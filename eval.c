@@ -681,14 +681,10 @@ eval(Value *v, Env *env)
     }
 }
 
-Value *
+int
 is_eq(Value *x, Value *y)
 {
-    if (x == y) {
-        return t;
-    } else {
-        return NULL;
-    }
+    return x == y;
 }
 
 void
@@ -737,10 +733,16 @@ allints(Value *l)
         return name(car(args), cadr(args)); \
     }
 
-#define pred(name) \
+#define pred1(name) \
     Value *builtin_is_##name(Value *args) { \
         arity(args, 1, #name); \
         return is_##name(car(args)) ? s_t : NULL; \
+    }
+
+#define pred2(name) \
+    Value *builtin_is_##name(Value *args) { \
+        arity(args, 2, #name); \
+        return is_##name(car(args), cadr(args)) ? s_t : NULL; \
     }
 
 #define op(op, name, init) \
@@ -770,7 +772,6 @@ allints(Value *l)
 builtin1(car)
 builtin1(cdr)
 builtin2(cons)
-builtin2(is_eq)
 
 Value *
 builtin_length(Value *args)
@@ -779,12 +780,13 @@ builtin_length(Value *args)
     return mkint(length(car(args)));
 }
 
-pred(nil)
-pred(sym)
-pred(int)
-pred(pair)
-pred(func)
-pred(builtin)
+pred1(nil)
+pred1(sym)
+pred1(int)
+pred1(pair)
+pred1(func)
+pred1(builtin)
+pred2(eq)
 
 op(+, plus, 0)
 op(-, minus, 0)
