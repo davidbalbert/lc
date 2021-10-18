@@ -812,8 +812,23 @@ pred2(eqv)
 pred2(equal)
 
 op(+, plus, 0)
-op(-, minus, 0)
 op(*, times, 1)
+
+Value *
+builtin_minus(Value *args)
+{
+    if (!allints(args)) { return NULL; }
+
+    int len = length(args);
+    if (len == 0) { return mkint(0); }
+    if (len == 1) { return mkint(-car(args)->n); }
+
+    long long res = car(args)->n;
+    for (args = cdr(args); args != NULL; args = cdr(args)) {
+        res -= car(args)->n;
+    }
+    return mkint(res);
+}
 
 Value *
 builtin_divide(Value *args)
