@@ -9,6 +9,7 @@
 enum Type {
     UNDEFINED, // returned by assoc and lookup if key is not found
     SYMBOL,
+    STRING,
     INTEGER,
     PAIR,
     BUILTIN,
@@ -17,6 +18,13 @@ enum Type {
 typedef enum Type Type;
 
 typedef struct Value Value;
+
+struct Buf {
+    char *s;
+    size_t len;
+    size_t cap;
+};
+typedef struct Buf Buf;
 
 struct Pair {
     Value *car;
@@ -50,6 +58,7 @@ struct Value {
     Type type;
     union {
         char *sym;
+        Buf *str;
         long long n;
         Pair pair;
         Func func;
@@ -66,6 +75,52 @@ xalloc(size_t size)
         exit(1);
     }
     return p;
+}
+
+void *
+xrealloc(void *p, size_t size)
+{
+    p = realloc(p, size);
+    if (p == NULL) {
+        fprintf(stderr, "out of memory\n");
+        exit(1);
+    }
+    return p;
+}
+
+Buf *
+binit(char *s)
+{
+    Buf *b = xalloc(sizeof(Buf));
+    b->len = strlen(s);
+    b->cap = b->len + 1;
+    b->s = xalloc(b->cap);
+    strncpy(b->s, s, b->len);
+    return b;
+}
+
+Buf *
+bappend(Buf *b, char *s)
+{
+    size_t len = strlen(s);
+    if (b->len + len + 1 > b->cap) {
+        b->cap = b->len + len + 1;
+        b->s = xrealloc(b->s, b->cap);
+    }
+    strncpy(b->s + b->len, s, len);
+    b->len += len;
+    return b;
+}
+
+Buf *
+bputc(Buf *b, char c)
+{
+    if (b->len + 1 > b->cap) {
+        b->cap *= 2;
+        b->s = xrealloc(b->s, b->cap);
+    }
+    b->s[b->len++] = c;
+    return b;
 }
 
 Value *
@@ -86,6 +141,11 @@ is_nil(Value *v) {
 int
 is_symbol(Value *v) {
     return !is_nil(v) && v->type == SYMBOL;
+}
+
+int
+is_string(Value *v) {
+    return !is_nil(v) && v->type == STRING;
 }
 
 int
@@ -193,6 +253,14 @@ mkint(long long n)
 }
 
 Value *
+mkstring(Buf *b)
+{
+    Value *v = alloc(STRING);
+    v->str = b;
+    return v;
+}
+
+Value *
 mkfunc(Value *params, Value *body, Env *env)
 {
     Value *v = alloc(FUNCTION);
@@ -252,6 +320,8 @@ fprint0(FILE *stream, Value *v, int depth)
         fprintf(stream, "%s", v->sym);
     } else if (is_integer(v)) {
         fprintf(stream, "%lld", v->n);
+    } else if (is_string(v)) {
+        fprintf(stream, "\"%s\"", v->str->s);
     } else if (is_function(v)) {
         fprintf(stream, "#<function ");
         if (v->func.name != NULL) {
@@ -411,6 +481,41 @@ read1(FILE *stream)
         return readlist(stream, 1);
     } else if (c == '\'') {
         return cons(intern("quote"), cons(read1(stream), NULL));
+    } else if (c == '"') {
+        Buf *b = binit("");
+
+        while (1) {
+            c = fgetc(stream);
+            if (c == EOF) {
+                fprintf(stderr, "unterminated string\n");
+                exit(1);
+            } else if (c == '"') {
+                break;
+            } else if (c == '\\') {
+                c = fgetc(stream);
+                if (c == EOF) {
+                    fprintf(stderr, "unterminated string\n");
+                    exit(1);
+                } else if (c == 'n') {
+                    c = '\n';
+                } else if (c == 't') {
+                    c = '\t';
+                } else if (c == 'r') {
+                    c = '\r';
+                } else if (c == '\\') {
+                    c = '\\';
+                } else if (c == '"') {
+                    c = '"';
+                } else {
+                    fprintf(stderr, "unknown escape sequence '\\%c'\n", c);
+                    exit(1);
+                }
+            }
+
+            bputc(b, c);
+        }
+
+        return mkstring(b);
     } else if ((c == '-' && isdigit(peek(stream))) || isdigit(c)) {
         char buf[MAX_INTLEN+1];
 
@@ -810,6 +915,7 @@ builtin_length(Value *args)
 
 pred1(nil)
 pred1(symbol)
+pred1(string)
 pred1(integer)
 pred1(pair)
 pred1(function)
@@ -876,6 +982,7 @@ main(int argc, char *argv[])
 
     def_pred(nil);
     def_pred(symbol);
+    def_pred(string);
     def_pred(integer);
     def_pred(pair);
     def_pred(function);
