@@ -38,11 +38,11 @@ struct Func {
 };
 typedef struct Func Func;
 
-typedef Value *(*imp)(Value *args);
+typedef Value *(*Imp)(Value *args);
 
 struct Builtin {
     char *name;
-    imp f;
+    Imp imp;
 };
 typedef struct Builtin Builtin;
 
@@ -204,11 +204,11 @@ mkfunc(Value *params, Value *body, Env *env)
 }
 
 Value *
-mkbuiltin(char *name, imp f)
+mkbuiltin(char *name, Imp imp)
 {
     Value *v = alloc(BUILTIN);
     v->builtin.name = name;
-    v->builtin.f = f;
+    v->builtin.imp = imp;
     return v;
 }
 
@@ -666,7 +666,7 @@ eval(Value *v, Env *env)
 
             return res;
         } else if (is_builtin(f)) {
-            return f->builtin.f(evlis(cdr(v), env));
+            return f->builtin.imp(evlis(cdr(v), env));
         } else {
             fprintf(stderr, "not a function: ");
             fprint(stderr, car(v));
