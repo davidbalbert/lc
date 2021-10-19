@@ -717,6 +717,41 @@ evlis(Value *params, Env *env)
     }
 }
 
+Value *
+evlet(Value *bindings, Env *env)
+{
+    assert(is_pair(bindings) || is_nil(bindings));
+
+    if (is_nil(bindings)) {
+        return NULL;
+    } else {
+        Value *b = car(bindings);
+        Value *name = car(b);
+        Value *value = eval(cadr(b), env);
+
+        return cons(cons(name, cons(value, NULL)), evlet(cdr(bindings), env));
+    }
+}
+
+Value *
+evletstar(Value *bindings, Env *env)
+{
+    assert(is_pair(bindings) || is_nil(bindings));
+
+    if (is_nil(bindings)) {
+        return NULL;
+    } else {
+        Value *b = car(bindings);
+        Value *name = car(b);
+        Value *value = eval(cadr(b), env);
+
+        env = clone(env);
+        def(name, value, env);
+
+        return cons(cons(name, cons(value, NULL)), evletstar(cdr(bindings), env));
+    }
+}
+
 Env *globals = NULL;
 
 Value *s_t;
@@ -725,6 +760,8 @@ Value *s_fn;
 Value *s_quote;
 Value *s_cond;
 Value *s_def;
+Value *s_let;
+Value *s_letstar;
 
 Value *
 eval(Value *v, Env *env)
@@ -755,6 +792,44 @@ eval(Value *v, Env *env)
         }
 
         return def(name, val, globals);
+    } else if (is_pair(v) && car(v) == s_let) {
+        Value *bindings = cadr(v);
+        Value *exprs = cddr(v);
+
+        if (!is_pair(bindings)) {
+            fprintf(stderr, "let: expected list, got: \n");
+            fprint(stderr, bindings);
+            exit(1);
+        }
+
+        Env *newenv = clone(env);
+        newenv->bindings = evlet(bindings, env);
+
+        Value *res = NULL;
+        for (Value *e = exprs; is_pair(e); e = cdr(e)) {
+            res = eval(car(e), newenv);
+        }
+
+        return res;
+    } else if (is_pair(v) && car(v) == s_letstar) {
+        Value *bindings = cadr(v);
+        Value *exprs = cddr(v);
+
+        if (!is_pair(bindings)) {
+            fprintf(stderr, "let*: expected list, got: \n");
+            fprint(stderr, bindings);
+            exit(1);
+        }
+
+        Env *newenv = clone(env);
+        newenv->bindings = evletstar(bindings, env);
+
+        Value *res = NULL;
+        for (Value *e = exprs; is_pair(e); e = cdr(e)) {
+            res = eval(car(e), newenv);
+        }
+
+        return res;
     } else if (is_pair(v)) {
         Value *f = eval(car(v), env);
 
@@ -966,7 +1041,7 @@ main(int argc, char *argv[])
 
     globals = clone(NULL);
 
-    symbol(t); t = s_t;
+    symbol(t); t = s_t; // return t seems more ergonomic and clear than return s_t
     def(t, t, globals);
     def(intern("nil"), NULL, globals);
 
@@ -974,6 +1049,8 @@ main(int argc, char *argv[])
     symbol(cond);
     symbol(fn);
     symbol(def);
+    symbol(let);
+    s_letstar = intern("let*");
 
     def_builtin(car);
     def_builtin(cdr);
