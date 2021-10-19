@@ -7,7 +7,6 @@
 #include <string.h>
 
 enum Type {
-    UNDEFINED, // returned by assoc and lookup if key is not found
     SYMBOL,
     STRING,
     INTEGER,
@@ -557,7 +556,31 @@ read1(FILE *stream)
     }
 }
 
-Value *undefined;
+int
+is_eq(Value *x, Value *y)
+{
+    return x == y;
+}
+
+int
+is_eqv(Value *x, Value *y)
+{
+    if (is_integer(x) && is_integer(y)) {
+        return x->n == y->n;
+    } else {
+        return is_eq(x, y);
+    }
+}
+
+int
+is_equal(Value *x, Value *y)
+{
+    if (is_pair(x) && is_pair(y)) {
+        return is_equal(car(x), car(y)) && is_equal(cdr(x), cdr(y));
+    } else {
+        return is_eqv(x, y);
+    }
+}
 
 Value *
 assoc(Value *v, Value *l)
@@ -568,14 +591,14 @@ assoc(Value *v, Value *l)
     }
 
     while (!is_nil(l)) {
-        if (caar(l) == v) {
-            return cadar(l);
+        if (is_equal(caar(l), v)) {
+            return car(l);
         }
 
         l = cdr(l);
     }
 
-    return undefined;
+    return NULL;
 }
 
 Value *
@@ -667,12 +690,12 @@ lookup(Value *name, Env *env)
 
     for (; env != NULL; env = env->parent) {
         v = assoc(name, env->bindings);
-        if (v != undefined) {
+        if (v) {
             return v;
         }
     }
 
-    return undefined;
+    return NULL;
 }
 
 void
@@ -688,6 +711,20 @@ def(Value *name, Value *value, Env *env)
 {
     env->bindings = cons(cons(name, cons(value, NULL)), env->bindings);
     setname(name, value);
+    return value;
+}
+
+Value *
+set(Value *name, Value *value, Env *env)
+{
+    Value *binding = lookup(name, env);
+    if (binding == NULL) {
+        fprintf(stderr, "set: undefined variable: %s\n", name->sym);
+        exit(1);
+    }
+
+    binding->pair.cdr = cons(value, NULL);
+
     return value;
 }
 
@@ -760,6 +797,7 @@ Value *s_fn;
 Value *s_quote;
 Value *s_cond;
 Value *s_def;
+Value *s_set;
 Value *s_let;
 Value *s_letstar;
 
@@ -785,13 +823,23 @@ eval(Value *v, Env *env)
         }
 
         Value *old = lookup(name, globals);
-        if (old != undefined) {
+        if (old) {
             fprintf(stderr, "def: symbol already defined: ");
             fprint(stderr, name);
             exit(1);
         }
 
         return def(name, val, globals);
+    } else if (is_pair(v) && car(v) == s_set) {
+        Value *lvar = cadr(v);
+        Value *val = eval(caddr(v), env);
+
+        if (!is_symbol(lvar)) {
+            fprintf(stderr, "set: expected symbol\n");
+            exit(1);
+        }
+
+        return set(lvar, val, env);
     } else if (is_pair(v) && car(v) == s_let) {
         Value *bindings = cadr(v);
         Value *exprs = cddr(v);
@@ -853,42 +901,16 @@ eval(Value *v, Env *env)
             exit(1);
         }
     } else if (is_symbol(v)) {
-        Value *res = lookup(v, env);
+        Value *binding = lookup(v, env);
 
-        if (res != undefined) {
-            return res;
+        if (binding) {
+            return cadr(binding);
         } else {
             fprintf(stderr, "unbound variable: %s\n", v->sym);
             exit(1);
         }
     } else {
         return v;
-    }
-}
-
-int
-is_eq(Value *x, Value *y)
-{
-    return x == y;
-}
-
-int
-is_eqv(Value *x, Value *y)
-{
-    if (is_integer(x) && is_integer(y)) {
-        return x->n == y->n;
-    } else {
-        return is_eq(x, y);
-    }
-}
-
-int
-is_equal(Value *x, Value *y)
-{
-    if (is_pair(x) && is_pair(y)) {
-        return is_equal(car(x), car(y)) && is_equal(cdr(x), cdr(y));
-    } else {
-        return is_eqv(x, y);
     }
 }
 
@@ -1037,8 +1059,6 @@ comp(==, eq)
 int
 main(int argc, char *argv[])
 {
-    undefined = alloc(UNDEFINED);
-
     globals = clone(NULL);
 
     symbol(t); t = s_t; // return t seems more ergonomic and clear than return s_t
@@ -1049,6 +1069,7 @@ main(int argc, char *argv[])
     symbol(cond);
     symbol(fn);
     symbol(def);
+    symbol(set);
     symbol(let);
     s_letstar = intern("let*");
 
