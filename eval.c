@@ -714,16 +714,72 @@ def(Value *name, Value *value, Env *env)
     return value;
 }
 
-Value *
-set(Value *name, Value *value, Env *env)
+Value *s_t;
+Value *t; // s_t
+Value *s_fn;
+Value *s_quote;
+Value *s_cond;
+Value *s_def;
+Value *s_set;
+Value *s_let;
+Value *s_letstar;
+Value *s_car;
+Value *s_cdr;
+
+Value **
+evalslot(Value *lvar, Env *env)
 {
-    Value *binding = lookup(name, env);
-    if (binding == NULL) {
-        fprintf(stderr, "set: undefined variable: %s\n", name->sym);
+    if (is_symbol(lvar)) {
+        Value *binding = lookup(lvar, env);
+        if (binding == NULL) {
+            return NULL;
+        }
+
+        assert(is_pair(binding) && is_pair(cdr(binding)));
+
+        return &binding->pair.cdr->pair.car;
+    } else if (is_pair(lvar) && car(lvar) == s_car) {
+        Value **slot = evalslot(cadr(lvar), env);
+        if (slot == NULL) {
+            return NULL;
+        }
+
+        assert(is_pair(*slot));
+
+        return &(*slot)->pair.car;
+    } else if (is_pair(lvar) && car(lvar) == s_cdr) {
+        Value **slot = evalslot(cadr(lvar), env);
+        if (slot == NULL) {
+            return NULL;
+        }
+
+        assert(is_pair(*slot));
+
+        return &(*slot)->pair.cdr;
+    } else {
+        fprintf(stderr, "set: expected lvar, got: ");
+        fprint(stderr, lvar);
         exit(1);
     }
 
-    binding->pair.cdr = cons(value, NULL);
+    return NULL;
+}
+
+Value *
+set(Value *lvar, Value *value, Env *env)
+{
+    Value **slot = evalslot(lvar, env);
+
+    if (slot == NULL && is_symbol(lvar)) {
+        fprintf(stderr, "set: undefined variable: %s\n", lvar->sym);
+        exit(1);
+    } else if (slot == NULL) {
+        fprintf(stderr, "set: invalid location: ");
+        fprint(stderr, lvar);
+        exit(1);
+    }
+
+    *slot = value;
 
     return value;
 }
@@ -791,16 +847,6 @@ evletstar(Value *bindings, Env *env)
 
 Env *globals = NULL;
 
-Value *s_t;
-Value *t; // s_t
-Value *s_fn;
-Value *s_quote;
-Value *s_cond;
-Value *s_def;
-Value *s_set;
-Value *s_let;
-Value *s_letstar;
-
 Value *
 eval(Value *v, Env *env)
 {
@@ -833,11 +879,6 @@ eval(Value *v, Env *env)
     } else if (is_pair(v) && car(v) == s_set) {
         Value *lvar = cadr(v);
         Value *val = eval(caddr(v), env);
-
-        if (!is_symbol(lvar)) {
-            fprintf(stderr, "set: expected symbol\n");
-            exit(1);
-        }
 
         return set(lvar, val, env);
     } else if (is_pair(v) && car(v) == s_let) {
@@ -1072,6 +1113,8 @@ main(int argc, char *argv[])
     symbol(set);
     symbol(let);
     s_letstar = intern("let*");
+    symbol(car);
+    symbol(cdr);
 
     def_builtin(car);
     def_builtin(cdr);
