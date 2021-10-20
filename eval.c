@@ -65,6 +65,21 @@ struct Value {
     };
 };
 
+// s_nil can never appear in lisp land. It is read as NULL (empty list);
+Value *s_nil;
+
+Value *s_t;
+Value *t; // s_t
+Value *s_fn;
+Value *s_quote;
+Value *s_cond;
+Value *s_def;
+Value *s_set;
+Value *s_let;
+Value *s_letstar;
+Value *s_car;
+Value *s_cdr;
+
 void *
 xalloc(size_t size)
 {
@@ -549,7 +564,13 @@ read1(FILE *stream)
         buf[i] = '\0';
         xungetc(c, stream);
 
-        return intern(buf);
+        Value *sym = intern(buf);
+
+        if (sym == s_nil) {
+            return NULL;
+        } else {
+            return sym;
+        }
     } else {
         fprintf(stderr, "unexpected character: %c\n", c);
         exit(1);
@@ -714,23 +735,72 @@ def(Value *name, Value *value, Env *env)
     return value;
 }
 
-Value *s_t;
-Value *t; // s_t
-Value *s_fn;
-Value *s_quote;
-Value *s_cond;
-Value *s_def;
-Value *s_set;
-Value *s_let;
-Value *s_letstar;
-Value *s_car;
-Value *s_cdr;
+// (def cadr (x) (car (cdr x)))
+// (def x '(1 2 3))
+// (set (cadr x) 5)
+// (set (cadr '(1 2 3)) 5)
+// (set (car (cdr '(1 2 3))) 5)
+//
+// (set (cadar x) 5)
+// (set (car (cdr (car x))) 5)
+//
+// (def inc (fn (x) (+ x 1)))
+// (def x 123)
+// (set (inc x) 5)
+// (set (inc 123) 5)
+// (set (+ 123 1) 5)
+//
+// (def x 123)
+// (def inc2 (x) (print x) (inc (inc x)))
+// (set (inc2 x) 5)
+// (set (inc2 123) 5)
+// (set (inc (inc 123)) 5)
+// (set (+ (inc 123) 1) 5) -- not supported
+//
+// (set ((getfunc 'car) x) 5)
+// (set (#<builtin car> x) 5)
+
+// potentially side effecting
+/*
+Value *
+inlinebody(Value *expr, Env *env)
+{
+    Value *head = car(expr);
+    Value *args = cdr(expr);
+
+    if (is_pair(head)) {
+        head = eval(head, env);
+    }
+
+    if (is_function(head)) {
+        // inline once directly
+    }
+
+    while (is_symbol(head)) {
+        // look up the symbol
+        // if the symbol is not bound to a function, break;
+
+        // eval args in env and create a newenv (no parent) with the bindnigs
+
+        // eval all but the last expression in the function body
+        // map over the last expression replacing any symbol in newenv with the body
+        // but don't evaluate it
+
+        // this is now the new expr.
+    }
+
+    //
+    return NULL;
+}
+*/
+
+Value *eval(Value *v, Env *env);
 
 Value **
-evalslot(Value *lvar, Env *env)
+evalslot(Value *lval, Env *env)
 {
-    if (is_symbol(lvar)) {
-        Value *binding = lookup(lvar, env);
+    if (is_symbol(lval)) {
+        Value *binding = lookup(lval, env);
         if (binding == NULL) {
             return NULL;
         }
@@ -738,8 +808,8 @@ evalslot(Value *lvar, Env *env)
         assert(is_pair(binding) && is_pair(cdr(binding)));
 
         return &binding->pair.cdr->pair.car;
-    } else if (is_pair(lvar) && car(lvar) == s_car) {
-        Value **slot = evalslot(cadr(lvar), env);
+    } else if (is_pair(lval) && car(lval) == s_car) {
+        Value **slot = evalslot(cadr(lval), env);
         if (slot == NULL) {
             return NULL;
         }
@@ -747,8 +817,8 @@ evalslot(Value *lvar, Env *env)
         assert(is_pair(*slot));
 
         return &(*slot)->pair.car;
-    } else if (is_pair(lvar) && car(lvar) == s_cdr) {
-        Value **slot = evalslot(cadr(lvar), env);
+    } else if (is_pair(lval) && car(lval) == s_cdr) {
+        Value **slot = evalslot(cadr(lval), env);
         if (slot == NULL) {
             return NULL;
         }
@@ -756,9 +826,32 @@ evalslot(Value *lvar, Env *env)
         assert(is_pair(*slot));
 
         return &(*slot)->pair.cdr;
+    } else if (is_pair(lval)) {
+        return &eval(lval, env);
+
+
+        // (set (cadr x) 5)
+        // (set (car (cdr x))
+        //
+        // (set (cadar x) 5)
+        // (set (car (cdr (car x))) 5)
+        //
+        // (def inc (fn (x) (+ x 1)))
+        // (def x 123)
+        // (set (inc x) 5)
+        // (set (inc 123) 5)
+        // (set (+ 123 1) 5)
+        //
+        // (def inc2 (x) (inc (inc x)))
+        // (set (inc2 x) 5)
+        // (set (inc2 123) 5)
+        // (set (inc (inc 123)) 5)
+        // (set (car (inc 123) 1) 5) -- not supported
+        fprintf(stderr, "nope\n");
+        exit(1);
     } else {
         fprintf(stderr, "set: expected lvar, got: ");
-        fprint(stderr, lvar);
+        fprint(stderr, lval);
         exit(1);
     }
 
@@ -766,16 +859,16 @@ evalslot(Value *lvar, Env *env)
 }
 
 Value *
-set(Value *lvar, Value *value, Env *env)
+set(Value *lval, Value *value, Env *env)
 {
-    Value **slot = evalslot(lvar, env);
+    Value **slot = evalslot(lval, env);
 
-    if (slot == NULL && is_symbol(lvar)) {
-        fprintf(stderr, "set: undefined variable: %s\n", lvar->sym);
+    if (slot == NULL && is_symbol(lval)) {
+        fprintf(stderr, "set: undefined variable: %s\n", lval->sym);
         exit(1);
     } else if (slot == NULL) {
         fprintf(stderr, "set: invalid location: ");
-        fprint(stderr, lvar);
+        fprint(stderr, lval);
         exit(1);
     }
 
@@ -783,8 +876,6 @@ set(Value *lvar, Value *value, Env *env)
 
     return value;
 }
-
-Value *eval(Value *v, Env *env);
 
 Value *
 evcon(Value *conditions, Env *env)
@@ -1104,7 +1195,7 @@ main(int argc, char *argv[])
 
     symbol(t); t = s_t; // return t seems more ergonomic and clear than return s_t
     def(t, t, globals);
-    def(intern("nil"), NULL, globals);
+    symbol(nil);
 
     symbol(quote);
     symbol(cond);
