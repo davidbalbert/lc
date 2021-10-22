@@ -827,9 +827,6 @@ evalslot(Value *lval, Env *env)
 
         return &(*slot)->pair.cdr;
     } else if (is_pair(lval)) {
-        return &eval(lval, env);
-
-
         // (set (cadr x) 5)
         // (set (car (cdr x))
         //
