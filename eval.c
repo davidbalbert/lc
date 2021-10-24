@@ -145,8 +145,6 @@ alloc(Type t)
     return v;
 }
 
-#define ERRLEN 1024
-
 int
 is_nil(Value *v) {
     return v == NULL;
@@ -735,125 +733,7 @@ def(Value *name, Value *value, Env *env)
     return value;
 }
 
-// (def cadr (x) (car (cdr x)))
-// (def x '(1 2 3))
-// (set (cadr x) 5)
-// (set (cadr '(1 2 3)) 5)
-// (set (car (cdr '(1 2 3))) 5)
-//
-// (set (cadar x) 5)
-// (set (car (cdr (car x))) 5)
-//
-// (def inc (fn (x) (+ x 1)))
-// (def x 123)
-// (set (inc x) 5)
-// (set (inc 123) 5)
-// (set (+ 123 1) 5)
-//
-// (def x 123)
-// (def inc2 (x) (print x) (inc (inc x)))
-// (set (inc2 x) 5)
-// (set (inc2 123) 5)
-// (set (inc (inc 123)) 5)
-// (set (+ (inc 123) 1) 5) -- not supported
-//
-// (set ((getfunc 'car) x) 5)
-// (set (#<builtin car> x) 5)
-
-// potentially side effecting
-/*
-Value *
-inlinebody(Value *expr, Env *env)
-{
-    Value *head = car(expr);
-    Value *args = cdr(expr);
-
-    if (is_pair(head)) {
-        head = eval(head, env);
-    }
-
-    if (is_function(head)) {
-        // inline once directly
-    }
-
-    while (is_symbol(head)) {
-        // look up the symbol
-        // if the symbol is not bound to a function, break;
-
-        // eval args in env and create a newenv (no parent) with the bindnigs
-
-        // eval all but the last expression in the function body
-        // map over the last expression replacing any symbol in newenv with the body
-        // but don't evaluate it
-
-        // this is now the new expr.
-    }
-
-    //
-    return NULL;
-}
-*/
-
-Value *eval(Value *v, Env *env);
-
-Value **
-evalslot(Value *lval, Env *env)
-{
-    if (is_symbol(lval)) {
-        Value *binding = lookup(lval, env);
-        if (binding == NULL) {
-            return NULL;
-        }
-
-        assert(is_pair(binding) && is_pair(cdr(binding)));
-
-        return &binding->pair.cdr->pair.car;
-    } else if (is_pair(lval) && car(lval) == s_car) {
-        Value **slot = evalslot(cadr(lval), env);
-        if (slot == NULL) {
-            return NULL;
-        }
-
-        assert(is_pair(*slot));
-
-        return &(*slot)->pair.car;
-    } else if (is_pair(lval) && car(lval) == s_cdr) {
-        Value **slot = evalslot(cadr(lval), env);
-        if (slot == NULL) {
-            return NULL;
-        }
-
-        assert(is_pair(*slot));
-
-        return &(*slot)->pair.cdr;
-    } else if (is_pair(lval)) {
-        // (set (cadr x) 5)
-        // (set (car (cdr x))
-        //
-        // (set (cadar x) 5)
-        // (set (car (cdr (car x))) 5)
-        //
-        // (def inc (fn (x) (+ x 1)))
-        // (def x 123)
-        // (set (inc x) 5)
-        // (set (inc 123) 5)
-        // (set (+ 123 1) 5)
-        //
-        // (def inc2 (x) (inc (inc x)))
-        // (set (inc2 x) 5)
-        // (set (inc2 123) 5)
-        // (set (inc (inc 123)) 5)
-        // (set (car (inc 123) 1) 5) -- not supported
-        fprintf(stderr, "nope\n");
-        exit(1);
-    } else {
-        fprintf(stderr, "set: expected lvar, got: ");
-        fprint(stderr, lval);
-        exit(1);
-    }
-
-    return NULL;
-}
+Value **evalslot(Value *v, Env *env);
 
 Value *
 set(Value *lval, Value *value, Env *env)
@@ -864,7 +744,7 @@ set(Value *lval, Value *value, Env *env)
         fprintf(stderr, "set: undefined variable: %s\n", lval->sym);
         exit(1);
     } else if (slot == NULL) {
-        fprintf(stderr, "set: invalid location: ");
+        fprintf(stderr, "set: invalid destination: ");
         fprint(stderr, lval);
         exit(1);
     }
@@ -873,6 +753,8 @@ set(Value *lval, Value *value, Env *env)
 
     return value;
 }
+
+Value *eval(Value *v, Env *env);
 
 Value *
 evcon(Value *conditions, Env *env)
@@ -883,6 +765,18 @@ evcon(Value *conditions, Env *env)
         return eval(cadar(conditions), env);
     } else {
         return evcon(cdr(conditions), env);
+    }
+}
+
+Value **
+evconslot(Value *conditions, Env *env)
+{
+    assert(is_pair(conditions) || is_nil(conditions));
+
+    if (eval(caar(conditions), env)) {
+        return evalslot(cadar(conditions), env);
+    } else {
+        return evconslot(cdr(conditions), env);
     }
 }
 
@@ -932,6 +826,68 @@ evletstar(Value *bindings, Env *env)
         return cons(cons(name, cons(value, NULL)), evletstar(cdr(bindings), env));
     }
 }
+
+Value **
+evalslot(Value *v, Env *env)
+{
+    if (is_pair(v) && car(v) == s_car) {
+        Value *p = eval(cadr(v), env);
+
+        if (is_pair(p)) {
+            return &p->pair.car;
+        } else {
+            return NULL;
+        }
+    } else if (is_pair(v) && car(v) == s_cdr) {
+        Value *p = eval(cadr(v), env);
+
+        if (is_pair(p)) {
+            return &p->pair.cdr;
+        } else {
+            return NULL;
+        }
+    } else if (is_pair(v) && car(v) == s_cond) {
+        return evconslot(v, env);
+    } else if (is_pair(v) && car(v) == s_def) {
+        eval(v, env);
+        return evalslot(cadr(v), env);
+    } else if (is_pair(v) && car(v) == s_set) {
+        eval(v, env);
+        return evalslot(cadr(v), env);
+    } else if (is_pair(v)) {
+        Value *f = eval(car(v), env);
+
+        if (is_function(f)) {
+            checkargs(f->func.name, f->func.params, cdr(v));
+            Value *bindings = zipargs(f->func.params, evlis(cdr(v), env));
+            Env *newenv = clone(f->func.env);
+            newenv->bindings = bindings;
+
+            Value **slot;
+            for (Value *e = f->func.body; is_pair(e); e = cdr(e)) {
+                if (is_pair(cdr(e))) {
+                    eval(car(e), newenv);
+                } else {
+                    slot = evalslot(car(e), newenv);
+                }
+            }
+
+            return slot;
+        } else {
+            return NULL;
+        }
+    } else if (is_symbol(v)) {
+        Value *binding = lookup(v, env);
+        if (binding == NULL) {
+            return NULL;
+        }
+
+        return &binding->pair.cdr->pair.car;
+    } else {
+        return NULL;
+    }
+}
+
 
 Env *globals = NULL;
 
@@ -1194,6 +1150,8 @@ main(int argc, char *argv[])
     def(t, t, globals);
     symbol(nil);
 
+    symbol(car);
+    symbol(cdr);
     symbol(quote);
     symbol(cond);
     symbol(fn);
