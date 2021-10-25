@@ -906,7 +906,22 @@ evalquasi(Value *v, Env *env)
     if (is_pair(v) && car(v) == s_unquote) {
         return eval(cadr(v), env);
     } else if (is_pair(v)) {
-        return cons(evalquasi(car(v), env), evalquasi(cdr(v), env));
+        Value *head = car(v);
+
+        if (is_pair(head) && car(head) == s_unquote_splicing) {
+            Value *p = eval(cadr(head), env);
+
+            if (!is_pair(p) && !is_nil(p)) {
+                fprintf(stderr, "evalquasi: expected list, got: ");
+                fprint(stderr, p);
+                fprintf(stderr, "\n");
+                exit(1);
+            }
+
+            return append(p, evalquasi(cdr(v), env));
+        } else {
+            return cons(evalquasi(car(v), env), evalquasi(cdr(v), env));
+        }
     } else {
         return v;
     }
