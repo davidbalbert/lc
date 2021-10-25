@@ -72,6 +72,9 @@ Value *s_t;
 Value *t; // s_t
 Value *s_fn;
 Value *s_quote;
+Value *s_quasiquote;
+Value *s_unquote;
+Value *s_unquote_splicing;
 Value *s_cond;
 Value *s_def;
 Value *s_set;
@@ -492,7 +495,16 @@ read(FILE *stream)
     } else if (c == '(') {
         return readlist(stream, 1);
     } else if (c == '\'') {
-        return cons(intern("quote"), cons(read(stream), NULL));
+        return cons(s_quote, cons(read(stream), NULL));
+    } else if (c == '`') {
+        return cons(s_quasiquote, cons(read(stream), NULL));
+    } else if (c == ',') {
+        if (peek(stream) == '@') {
+            fgetc(stream);
+            return cons(s_unquote_splicing, cons(read(stream), NULL));
+        } else {
+            return cons(s_unquote, cons(read(stream), NULL));
+        }
     } else if (c == '"') {
         Buf *b = binit("");
 
@@ -888,6 +900,17 @@ evalslot(Value *v, Env *env)
     }
 }
 
+Value *
+evalquasi(Value *v, Env *env)
+{
+    if (is_pair(v) && car(v) == s_unquote) {
+        return eval(cadr(v), env);
+    } else if (is_pair(v)) {
+        return cons(evalquasi(car(v), env), evalquasi(cdr(v), env));
+    } else {
+        return v;
+    }
+}
 
 Env *globals = NULL;
 
@@ -896,6 +919,8 @@ eval(Value *v, Env *env)
 {
     if (is_pair(v) && car(v) == s_quote) {
         return cadr(v);
+    } else if (is_pair(v) && car(v) == s_quasiquote) {
+        return evalquasi(cadr(v), env);
     } else if (is_pair(v) && car(v) == s_cond) {
         return evcon(cdr(v), env);
     } else if (is_pair(v) && car(v) == s_fn) {
@@ -1153,6 +1178,9 @@ main(int argc, char *argv[])
     symbol(car);
     symbol(cdr);
     symbol(quote);
+    symbol(quasiquote);
+    symbol(unquote);
+    s_unquote_splicing = intern("unquote-splicing");
     symbol(cond);
     symbol(fn);
     symbol(def);
