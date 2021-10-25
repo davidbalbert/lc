@@ -499,6 +499,8 @@ read(FILE *stream)
     } else if (c == '`') {
         return cons(s_quasiquote, cons(read(stream), NULL));
     } else if (c == ',') {
+        // TODO error check on peek and fgetc
+
         if (peek(stream) == '@') {
             fgetc(stream);
             return cons(s_unquote_splicing, cons(read(stream), NULL));
