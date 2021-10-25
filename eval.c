@@ -744,7 +744,7 @@ set(Value *lval, Value *value, Env *env)
         fprintf(stderr, "set: undefined variable: %s\n", lval->sym);
         exit(1);
     } else if (slot == NULL) {
-        fprintf(stderr, "set: invalid destination: ");
+        fprintf(stderr, "set: invalid location: ");
         fprint(stderr, lval);
         exit(1);
     }
