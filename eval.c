@@ -419,7 +419,7 @@ skipspace(FILE *stream)
     }
 }
 
-Value *read1(FILE *stream);
+Value *read(FILE *stream);
 
 Value *
 readlist(FILE *stream, int first)
@@ -439,7 +439,7 @@ readlist(FILE *stream, int first)
         // TODO: error handling
         c = fgetc(stream);
 
-        Value *cdr = read1(stream);
+        Value *cdr = read(stream);
         skipspace(stream);
         int c = fgetc(stream);
         if (c != ')') {
@@ -449,7 +449,7 @@ readlist(FILE *stream, int first)
 
         return cdr;
     } else {
-        Value *car = read1(stream);
+        Value *car = read(stream);
         Value *cdr = readlist(stream, 0);
         return cons(car, cdr);
     }
@@ -482,7 +482,7 @@ parseint(char *s)
 }
 
 Value *
-read1(FILE *stream)
+read(FILE *stream)
 {
     skipspace(stream);
 
@@ -492,7 +492,7 @@ read1(FILE *stream)
     } else if (c == '(') {
         return readlist(stream, 1);
     } else if (c == '\'') {
-        return cons(intern("quote"), cons(read1(stream), NULL));
+        return cons(intern("quote"), cons(read(stream), NULL));
     } else if (c == '"') {
         Buf *b = binit("");
 
@@ -1193,7 +1193,7 @@ main(int argc, char *argv[])
     def_op(=, eq);
 
     while (peek(stdin) != EOF) {
-        Value *v = read1(stdin);
+        Value *v = read(stdin);
         v = eval(v, globals);
         print(v);
     }
