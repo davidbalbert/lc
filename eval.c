@@ -765,6 +765,10 @@ set(Value *lval, Value *value, Env *env)
 
     *slot = value;
 
+    if (is_symbol(lval)) {
+        setname(lval, value);
+    }
+
     return value;
 }
 
