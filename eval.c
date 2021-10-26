@@ -907,27 +907,28 @@ evalslot(Value *v, Env *env)
 }
 
 Value *
-evalquasi(Value *v, Env *env)
+evalquasi(Value *v, Env *env, int depth)
 {
     if (is_pair(v) && car(v) == s_unquote) {
         return eval(cadr(v), env);
-    } else if (is_pair(v)) {
-        Value *head = car(v);
+    } else if (is_pair(v) && car(v) == s_unquote_splicing && depth == 0) {
+        fprintf(stderr, "evalquasi: unquote-splicing not in list: ");
+        fprint(stderr, v);
+        fprintf(stderr, "\n");
+        exit(1);
+    } else if (is_pair(v) && caar(v) == s_unquote_splicing) {
+        Value *p = eval(cadar(v), env);
 
-        if (is_pair(head) && car(head) == s_unquote_splicing) {
-            Value *p = eval(cadr(head), env);
-
-            if (!is_pair(p) && !is_nil(p)) {
-                fprintf(stderr, "evalquasi: expected list, got: ");
-                fprint(stderr, p);
-                fprintf(stderr, "\n");
-                exit(1);
-            }
-
-            return append(p, evalquasi(cdr(v), env));
-        } else {
-            return cons(evalquasi(car(v), env), evalquasi(cdr(v), env));
+        if (!is_pair(p) && !is_nil(p)) {
+            fprintf(stderr, "evalquasi: expected list, got: ");
+            fprint(stderr, p);
+            fprintf(stderr, "\n");
+            exit(1);
         }
+
+        return append(p, evalquasi(cdr(v), env, depth));
+    } else if (is_pair(v)) {
+        return cons(evalquasi(car(v), env, depth+1), evalquasi(cdr(v), env, depth));
     } else {
         return v;
     }
@@ -941,7 +942,7 @@ eval(Value *v, Env *env)
     if (is_pair(v) && car(v) == s_quote) {
         return cadr(v);
     } else if (is_pair(v) && car(v) == s_quasiquote) {
-        return evalquasi(cadr(v), env);
+        return evalquasi(cadr(v), env, 0);
     } else if (is_pair(v) && car(v) == s_cond) {
         return evcon(cdr(v), env);
     } else if (is_pair(v) && car(v) == s_fn) {
