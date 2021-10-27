@@ -13,6 +13,7 @@ enum Type {
     PAIR,
     BUILTIN,
     FUNCTION,
+    MACRO,
 };
 typedef enum Type Type;
 
@@ -60,8 +61,8 @@ struct Value {
         Buf *str;
         long long n;
         Pair pair;
-        Func func;
         Builtin builtin;
+        Func func; // also used for macros
     };
 };
 
@@ -71,6 +72,7 @@ Value *s_nil;
 Value *s_t;
 Value *t; // s_t
 Value *s_fn;
+Value *s_macro;
 Value *s_quote;
 Value *s_quasiquote;
 Value *s_unquote;
@@ -174,18 +176,23 @@ is_pair(Value *v) {
 }
 
 int
-is_function(Value *v) {
-    return !is_nil(v) && v->type == FUNCTION;
-}
-
-int
 is_builtin(Value *v) {
     return !is_nil(v) && v->type == BUILTIN;
 }
 
 int
+is_function(Value *v) {
+    return !is_nil(v) && v->type == FUNCTION;
+}
+
+int
 is_procedure(Value *v) {
     return is_function(v) || is_builtin(v);
+}
+
+int
+is_macro(Value *v) {
+    return !is_nil(v) && v->type == MACRO;
 }
 
 Value *
@@ -276,9 +283,11 @@ mkstring(Buf *b)
 }
 
 Value *
-mkfunc(Value *params, Value *body, Env *env)
+mkfunc(Type type, Value *params, Value *body, Env *env)
 {
-    Value *v = alloc(FUNCTION);
+    assert(type == FUNCTION || type == MACRO);
+
+    Value *v = alloc(type);
     v->func.name = NULL;
     v->func.params = params;
     v->func.body = body;
@@ -337,6 +346,8 @@ fprint0(FILE *stream, Value *v, int depth)
         fprintf(stream, "%lld", v->n);
     } else if (is_string(v)) {
         fprintf(stream, "\"%s\"", v->str->s);
+    } else if (is_builtin(v)) {
+        fprintf(stream, "#<builtin %s>", v->builtin.name);
     } else if (is_function(v)) {
         fprintf(stream, "#<function ");
         if (v->func.name != NULL) {
@@ -345,8 +356,14 @@ fprint0(FILE *stream, Value *v, int depth)
             fprintf(stream, "(anonymous)");
         }
         fprintf(stream, ">");
-    } else if (is_builtin(v)) {
-        fprintf(stream, "#<builtin %s>", v->builtin.name);
+    } else if (is_macro(v)) {
+        fprintf(stream, "#<macro ");
+        if (v->func.name != NULL) {
+            fprintf(stream, "%s", v->func.name->sym);
+        } else {
+            fprintf(stream, "(anonymous)");
+        }
+        fprintf(stream, ">");
     } else if (is_pair(v)){
         fprintf(stream, "(");
         fprint0(stream, v->pair.car, depth+1);
@@ -384,6 +401,16 @@ void
 print(Value *v)
 {
     fprint(stdout, v);
+}
+
+Value *
+builtin_print(Value *args)
+{
+    for (Value *v = args; !is_nil(v); v = cdr(v)) {
+        fprint(stdout, car(v));
+    }
+
+    return NULL;
 }
 
 int
@@ -734,7 +761,7 @@ lookup(Value *name, Env *env)
 void
 setname(Value *name, Value *value)
 {
-    if (is_function(value)) {
+    if (is_function(value) || is_macro(value)) {
         value->func.name = name;
     }
 }
@@ -772,7 +799,71 @@ set(Value *lval, Value *value, Env *env)
     return value;
 }
 
+Value*
+quotelist(Value *l)
+{
+    assert(is_pair(l) || is_nil(l));
+
+    if (is_pair(l)) {
+        return cons(cons(s_quote, cons(car(l), NULL)), quotelist(cdr(l)));
+    } else {
+        return NULL;
+    }
+}
+
+Value *evlis(Value *params, Env *env);
 Value *eval(Value *v, Env *env);
+
+Value *
+apply(Value *f, Value *args, Env *env)
+{
+    assert(is_function(f) || is_macro(f));
+
+    checkargs(f->func.name, f->func.params, args);
+    Value *bindings = zipargs(f->func.params, evlis(args, env));
+    Env *newenv = clone(f->func.env);
+    newenv->bindings = bindings;
+
+    Value *res;
+    for (Value *e = f->func.body; is_pair(e); e = cdr(e)) {
+        res = eval(car(e), newenv);
+    }
+
+    return res;
+}
+
+Value *expand(Value *v, Env *env);
+
+Value *
+expandlist(Value *l, Env *env)
+{
+    if (is_pair(l)) {
+        return cons(expand(car(l), env), expandlist(cdr(l), env));
+    } else {
+        return NULL;
+    }
+}
+
+Value *
+expand(Value *v, Env *env)
+{
+    if (is_pair(v) && is_symbol(car(v))) {
+        Value *binding = lookup(car(v), env);
+
+        if (binding == NULL || !is_macro(cadr(binding))) {
+            return cons(car(v), expandlist(cdr(v), env));
+        }
+
+        Value *macro = cadr(binding);
+        Value *args = quotelist(cdr(v));
+
+        return apply(macro, args, env);
+    } else if (is_pair(v)) {
+        return expandlist(v, env);
+    } else {
+        return v;
+    }
+}
 
 Value *
 evcon(Value *conditions, Env *env)
@@ -944,7 +1035,9 @@ eval(Value *v, Env *env)
     } else if (is_pair(v) && car(v) == s_cond) {
         return evcon(cdr(v), env);
     } else if (is_pair(v) && car(v) == s_fn) {
-        return mkfunc(cadr(v), cddr(v), env);
+        return mkfunc(FUNCTION, cadr(v), cddr(v), env);
+    } else if (is_pair(v) && car(v) == s_macro) {
+        return mkfunc(MACRO, cadr(v), cddr(v), env);
     } else if (is_pair(v) && car(v) == s_def && length(v) > 3) {
         // short form lambda definition, e.g. (def inc (x) (+ 1 x))
         return eval(cons(s_def, cons(cadr(v), cons(cons(s_fn, cons(caddr(v), cdddr(v))), NULL))), env);
@@ -1012,19 +1105,13 @@ eval(Value *v, Env *env)
         Value *f = eval(car(v), env);
 
         if (is_function(f)) {
-            checkargs(f->func.name, f->func.params, cdr(v));
-            Value *bindings = zipargs(f->func.params, evlis(cdr(v), env));
-            Env *newenv = clone(f->func.env);
-            newenv->bindings = bindings;
-
-            Value *res;
-            for (Value *e = f->func.body; is_pair(e); e = cdr(e)) {
-                res = eval(car(e), newenv);
-            }
-
-            return res;
+            return apply(f, cdr(v), env);
         } else if (is_builtin(f)) {
             return f->builtin.imp(evlis(cdr(v), env));
+        } else if (is_macro(f)) {
+            fprintf(stderr, "can't call a macro at runtime: ");
+            fprint(stderr, car(v));
+            exit(1);
         } else {
             fprintf(stderr, "not a function: ");
             fprint(stderr, car(v));
@@ -1203,6 +1290,7 @@ main(int argc, char *argv[])
     s_unquote_splicing = intern("unquote-splicing");
     symbol(cond);
     symbol(fn);
+    symbol(macro);
     symbol(def);
     symbol(set);
     symbol(let);
@@ -1228,6 +1316,8 @@ main(int argc, char *argv[])
     def_pred(eqv);
     def_pred(equal);
 
+    def_builtin(print);
+
     def_op(+, plus);
     def_op(-, minus);
     def_op(*, times);
@@ -1242,6 +1332,7 @@ main(int argc, char *argv[])
 
     while (peek(stdin) != EOF) {
         Value *v = read(stdin);
+        v = expand(v, globals);
         v = eval(v, globals);
         print(v);
     }
