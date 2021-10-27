@@ -840,7 +840,7 @@ expandlist(Value *l, Env *env)
     if (is_pair(l)) {
         return cons(expand(car(l), env), expandlist(cdr(l), env));
     } else {
-        return NULL;
+        return l;
     }
 }
 
