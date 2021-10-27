@@ -870,7 +870,12 @@ evcon(Value *conditions, Env *env)
 {
     assert(is_pair(conditions) || is_nil(conditions));
 
-    if (eval(caar(conditions), env)) {
+    if (is_nil(conditions)) {
+        return NULL;
+    } else if (!is_pair(car(conditions))) {
+        fprintf(stderr, "evcon: expected list\n");
+        exit(1);
+    } else if (eval(caar(conditions), env)) {
         return eval(cadar(conditions), env);
     } else {
         return evcon(cdr(conditions), env);
@@ -882,7 +887,12 @@ evconslot(Value *conditions, Env *env)
 {
     assert(is_pair(conditions) || is_nil(conditions));
 
-    if (eval(caar(conditions), env)) {
+    if (is_nil(conditions)) {
+        return NULL;
+    } else if (!is_pair(car(conditions))) {
+        fprintf(stderr, "evconslot: expected list\n");
+        exit(1);
+    } else if (eval(caar(conditions), env)) {
         return evalslot(cadar(conditions), env);
     } else {
         return evconslot(cdr(conditions), env);
@@ -956,7 +966,7 @@ evalslot(Value *v, Env *env)
             return NULL;
         }
     } else if (is_pair(v) && car(v) == s_cond) {
-        return evconslot(v, env);
+        return evconslot(cadr(v), env);
     } else if (is_pair(v) && car(v) == s_def) {
         eval(v, env);
         return evalslot(cadr(v), env);
@@ -1033,7 +1043,7 @@ eval(Value *v, Env *env)
     } else if (is_pair(v) && car(v) == s_quasiquote) {
         return evalquasi(cadr(v), env);
     } else if (is_pair(v) && car(v) == s_cond) {
-        return evcon(cdr(v), env);
+        return evcon(cadr(v), env);
     } else if (is_pair(v) && car(v) == s_fn) {
         return mkfunc(FUNCTION, cadr(v), cddr(v), env);
     } else if (is_pair(v) && car(v) == s_macro) {
@@ -1333,6 +1343,7 @@ main(int argc, char *argv[])
     while (peek(stdin) != EOF) {
         Value *v = read(stdin);
         v = expand(v, globals);
+        // print(v);
         v = eval(v, globals);
         print(v);
     }
