@@ -1,8 +1,6 @@
 CFLAGS := -g
 
-default: bootstrap
-
-bootstrap: bootstrap.c runtime.c
+default: eval
 
 .PHONY: clean
 clean:
