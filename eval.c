@@ -77,7 +77,7 @@ Value *s_quote;
 Value *s_quasiquote;
 Value *s_unquote;
 Value *s_unquote_splicing;
-Value *s_cond;
+Value *s_if;
 Value *s_def;
 Value *s_set;
 Value *s_let;
@@ -866,36 +866,30 @@ expand(Value *v, Env *env)
 }
 
 Value *
-evcon(Value *conditions, Env *env)
+evif(Value *conditions, Env *env)
 {
-    assert(is_pair(conditions) || is_nil(conditions));
-
     if (is_nil(conditions)) {
         return NULL;
-    } else if (!is_pair(car(conditions))) {
-        fprintf(stderr, "evcon: expected list\n");
-        exit(1);
-    } else if (eval(caar(conditions), env)) {
-        return eval(cadar(conditions), env);
+    } else if (length(conditions) == 1) {
+        return eval(car(conditions), env);
+    } else if (eval(car(conditions), env)) {
+        return eval(cadr(conditions), env);
     } else {
-        return evcon(cdr(conditions), env);
+        return evif(cddr(conditions), env);
     }
 }
 
 Value **
-evconslot(Value *conditions, Env *env)
+evifslot(Value *conditions, Env *env)
 {
-    assert(is_pair(conditions) || is_nil(conditions));
-
     if (is_nil(conditions)) {
         return NULL;
-    } else if (!is_pair(car(conditions))) {
-        fprintf(stderr, "evconslot: expected list\n");
-        exit(1);
-    } else if (eval(caar(conditions), env)) {
-        return evalslot(cadar(conditions), env);
+    } else if (length(conditions) == 1) {
+        return evalslot(car(conditions), env);
+    } else if (eval(car(conditions), env)) {
+        return evalslot(cadr(conditions), env);
     } else {
-        return evconslot(cdr(conditions), env);
+        return evifslot(cddr(conditions), env);
     }
 }
 
@@ -965,8 +959,8 @@ evalslot(Value *v, Env *env)
         } else {
             return NULL;
         }
-    } else if (is_pair(v) && car(v) == s_cond) {
-        return evconslot(cadr(v), env);
+    } else if (is_pair(v) && car(v) == s_if) {
+        return evifslot(cdr(v), env);
     } else if (is_pair(v) && car(v) == s_def) {
         eval(v, env);
         return evalslot(cadr(v), env);
@@ -1042,8 +1036,8 @@ eval(Value *v, Env *env)
         return cadr(v);
     } else if (is_pair(v) && car(v) == s_quasiquote) {
         return evalquasi(cadr(v), env);
-    } else if (is_pair(v) && car(v) == s_cond) {
-        return evcon(cadr(v), env);
+    } else if (is_pair(v) && car(v) == s_if) {
+        return evif(cdr(v), env);
     } else if (is_pair(v) && car(v) == s_fn) {
         return mkfunc(FUNCTION, cadr(v), cddr(v), env);
     } else if (is_pair(v) && car(v) == s_macro) {
@@ -1298,7 +1292,7 @@ main(int argc, char *argv[])
     symbol(quasiquote);
     symbol(unquote);
     s_unquote_splicing = intern("unquote-splicing");
-    symbol(cond);
+    symbol(if);
     symbol(fn);
     symbol(macro);
     symbol(def);
