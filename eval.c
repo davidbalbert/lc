@@ -1205,6 +1205,41 @@ comp(<=, le)
 // different from is_eq, which is eq?
 comp(==, eq)
 
+Value *
+load(char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "load: can't open %s\n", path);
+        exit(1);
+    }
+
+    while (peek(f) != EOF) {
+        Value *v = read(f);
+        v = expand(v, globals);
+        eval(v, globals);
+    }
+
+    fclose(f);
+
+    return NULL;
+}
+
+Value *
+builtin_load(Value *args)
+{
+    arity(args, 1, "load");
+
+    Value *path = car(args);
+
+    if (!is_string(path)) {
+        fprintf(stderr, "load: path must be a string\n");
+        exit(1);
+    }
+
+    return load(path->str->s);
+}
+
 #define symbol(name) s_##name = intern(#name)
 #define def_builtin(name) def(intern(#name), mkbuiltin(#name, builtin_##name), globals)
 #define def_pred(name) def(intern(#name "?"), mkbuiltin(#name "?", builtin_is_##name), globals)
@@ -1252,6 +1287,7 @@ main(int argc, char *argv[])
     def_pred(equal);
 
     def_builtin(print);
+    def_builtin(load);
 
     def_op(+, plus);
     def_op(-, minus);
@@ -1264,6 +1300,8 @@ main(int argc, char *argv[])
     def_op(<=, le);
     // = for Lisp land, but == above in comp for the C operator.
     def_op(=, eq);
+
+    load("lib.lisp");
 
     while (peek(stdin) != EOF) {
         Value *v = read(stdin);
