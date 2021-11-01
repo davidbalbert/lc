@@ -80,8 +80,6 @@ Value *s_unquote_splicing;
 Value *s_if;
 Value *s_def;
 Value *s_set;
-Value *s_let;
-Value *s_letstar;
 Value *s_car;
 Value *s_cdr;
 
@@ -913,41 +911,6 @@ evlis(Value *params, Env *env)
     }
 }
 
-Value *
-evlet(Value *bindings, Env *env)
-{
-    assert(is_pair(bindings) || is_nil(bindings));
-
-    if (is_nil(bindings)) {
-        return NULL;
-    } else {
-        Value *b = car(bindings);
-        Value *name = car(b);
-        Value *value = eval(cadr(b), env);
-
-        return cons(cons(name, cons(value, NULL)), evlet(cdr(bindings), env));
-    }
-}
-
-Value *
-evletstar(Value *bindings, Env *env)
-{
-    assert(is_pair(bindings) || is_nil(bindings));
-
-    if (is_nil(bindings)) {
-        return NULL;
-    } else {
-        Value *b = car(bindings);
-        Value *name = car(b);
-        Value *value = eval(cadr(b), env);
-
-        env = clone(env);
-        def(name, value, env);
-
-        return cons(cons(name, cons(value, NULL)), evletstar(cdr(bindings), env));
-    }
-}
-
 Value **
 evalslot(Value *v, Env *env)
 {
@@ -1075,44 +1038,6 @@ eval(Value *v, Env *env)
         Value *val = eval(caddr(v), env);
 
         return set(lvar, val, env);
-    } else if (is_pair(v) && car(v) == s_let) {
-        Value *bindings = cadr(v);
-        Value *exprs = cddr(v);
-
-        if (!is_pair(bindings)) {
-            fprintf(stderr, "let: expected list, got: \n");
-            fprint(stderr, bindings);
-            exit(1);
-        }
-
-        Env *newenv = clone(env);
-        newenv->bindings = evlet(bindings, env);
-
-        Value *res = NULL;
-        for (Value *e = exprs; is_pair(e); e = cdr(e)) {
-            res = eval(car(e), newenv);
-        }
-
-        return res;
-    } else if (is_pair(v) && car(v) == s_letstar) {
-        Value *bindings = cadr(v);
-        Value *exprs = cddr(v);
-
-        if (!is_pair(bindings)) {
-            fprintf(stderr, "let*: expected list, got: \n");
-            fprint(stderr, bindings);
-            exit(1);
-        }
-
-        Env *newenv = clone(env);
-        newenv->bindings = evletstar(bindings, env);
-
-        Value *res = NULL;
-        for (Value *e = exprs; is_pair(e); e = cdr(e)) {
-            res = eval(car(e), newenv);
-        }
-
-        return res;
     } else if (is_pair(v)) {
         Value *f = eval(car(v), env);
 
@@ -1305,8 +1230,6 @@ main(int argc, char *argv[])
     symbol(macro);
     symbol(def);
     symbol(set);
-    symbol(let);
-    s_letstar = intern("let*");
     symbol(car);
     symbol(cdr);
 
