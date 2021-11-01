@@ -743,6 +743,7 @@ clone(Env *env)
     return newenv;
 }
 
+// Returns a binding, e.g. '(x 1)
 Value *
 lookup(Value *name, Env *env)
 {
@@ -756,6 +757,14 @@ lookup(Value *name, Env *env)
     }
 
     return NULL;
+}
+
+// Returns a value instead of a binding. Can't differentiate
+// between name being unbound and name being bound to nil.
+Value *
+lookupv(Value *name, Env *env)
+{
+    return cadr(lookup(name, env));
 }
 
 void
@@ -847,19 +856,18 @@ expandlist(Value *l, Env *env)
 Value *
 expand(Value *v, Env *env)
 {
-    if (is_pair(v) && is_symbol(car(v))) {
-        Value *binding = lookup(car(v), env);
+    if (is_pair(v)) {
+        v = expandlist(v, env);
 
-        if (binding == NULL || !is_macro(cadr(binding))) {
-            return cons(car(v), expandlist(cdr(v), env));
+        // if car(v) is not a symbol, lookupv will return nil
+        Value *macro = lookupv(car(v), env);
+        if (!is_macro(macro)) {
+            return v;
         }
 
-        Value *macro = cadr(binding);
         Value *args = quotelist(cdr(v));
 
-        return apply(macro, args, env);
-    } else if (is_pair(v)) {
-        return expandlist(v, env);
+        return expand(apply(macro, args, env), env);
     } else {
         return v;
     }
