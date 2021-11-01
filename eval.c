@@ -441,9 +441,22 @@ xungetc(int c, FILE *stream)
 void
 skipspace(FILE *stream)
 {
-    int c;
-    while ((c = peek(stream)) != EOF && isspace(c)) {
+    int c, comment = 0;
+
+    while ((c = peek(stream)) != EOF) {
+        if (c == ';') {
+            comment = 1;
+        }
+
+        if (!isspace(c) && !comment) {
+            return;
+        }
+
         fgetc(stream);
+
+        if (c == '\n') {
+            comment = 0;
+        }
     }
 }
 
