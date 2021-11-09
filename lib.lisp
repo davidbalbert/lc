@@ -2,7 +2,7 @@
 (def cadr (x) (car (cdr x)))
 (def cadar (x) (car (cdr (car x))))
 
-(def list args)
+(def list args args)
 
 (def map (f l)
     (if (pair? l)
