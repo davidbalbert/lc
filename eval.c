@@ -6,6 +6,134 @@
 #include <stdlib.h>
 #include <string.h>
 
+void *
+xalloc(size_t size)
+{
+    void *p = calloc(1, size);
+    if (p == NULL) {
+        fprintf(stderr, "out of memory\n");
+        exit(1);
+    }
+    return p;
+}
+
+// TODO: zero fill inside realloc
+void *
+xrealloc(void *p, size_t size)
+{
+    p = realloc(p, size);
+    if (p == NULL) {
+        fprintf(stderr, "out of memory\n");
+        exit(1);
+    }
+    return p;
+}
+
+typedef struct Header Header;
+struct Header {
+    Header *next; // the least significant bit is the mark bit
+    size_t size; // size in multiples of sizeof(Header)
+};
+
+Header base; // initialized to zero
+Header *freep = &base;
+Header *usedp;
+void *stacktop;
+
+void
+gcinit0(void)
+{
+    freep->next = freep;
+}
+
+#define gcinit() do { void *x; stacktop = &x; gcinit0(); } while(0)
+
+void
+gcmark(void *p)
+{
+}
+
+void
+gcsweep(void)
+{
+}
+
+void
+gc()
+{
+}
+
+#define MIN_ALLOC 4096
+
+void
+gcfree(Header *p)
+{
+    // iterate across the free list to find a place where this will go
+    // once we find it, if it's contiguous with prev, merge it with prev
+    // if it's contiguous with prev->next merge it with prev->next
+
+    Header *h;
+
+    //
+
+}
+
+void
+gcmore(size_t size)
+{
+    if (size < MIN_ALLOC) {
+        size = MIN_ALLOC;
+    }
+
+    assert(size%sizeof(Header) == 0);
+
+    Header *p = xalloc(size);
+    gcfree(p);
+}
+
+void *
+gcmalloc(size_t size)
+{
+    size_t nhead = (sizeof(Header) + size - 1) / sizeof(Header) + 1;
+
+    Header *prev = freep;
+    Header *p = freep->next;
+
+    int gcd = 0;
+
+    while (1) {
+        if (p->size >= nhead) {
+            if (p->size == nhead) {
+                prev->next = p->next;
+            } else {
+                p->size -= nhead;
+                p += p->size;
+                p->size = nhead;
+            }
+
+            if (usedp == NULL) {
+                usedp = p->next = p;
+            } else {
+                p->next = usedp->next;
+                usedp->next = p;
+            }
+
+            return p+1;
+        }
+
+        if (p == freep && !gcd) {
+            gc();
+            gcd = 1;
+        } else if (p == freep) {
+            gcmore(nhead*sizeof(Header));
+        }
+
+        prev = p;
+        p = p->next;
+    }
+}
+
+
 enum Type {
     SYMBOL,
     STRING,
@@ -82,28 +210,6 @@ Value *s_def;
 Value *s_set;
 Value *s_car;
 Value *s_cdr;
-
-void *
-xalloc(size_t size)
-{
-    void *p = calloc(1, size);
-    if (p == NULL) {
-        fprintf(stderr, "out of memory\n");
-        exit(1);
-    }
-    return p;
-}
-
-void *
-xrealloc(void *p, size_t size)
-{
-    p = realloc(p, size);
-    if (p == NULL) {
-        fprintf(stderr, "out of memory\n");
-        exit(1);
-    }
-    return p;
-}
 
 Buf *
 binit(char *s)
@@ -514,7 +620,7 @@ is_symstart(int c)
 long long
 parseint(char *s)
 {
-    long long n = strtol(s, NULL, 10);
+    long long n = strtoll(s, NULL, 10);
     if (errno == ERANGE) {
         fprintf(stderr, "integer too big '%s'\n", s);
         exit(1);
@@ -1261,6 +1367,8 @@ builtin_load(Value *args)
 int
 main(int argc, char *argv[])
 {
+    gcinit();
+
     globals = clone(NULL);
 
     symbol(t); t = s_t; // return t seems more ergonomic and clear than return s_t
@@ -1319,7 +1427,6 @@ main(int argc, char *argv[])
     while (peek(stdin) != EOF) {
         Value *v = read(stdin);
         v = expand(v, globals);
-        // print(v);
         v = eval(v, globals);
         print(v);
     }
