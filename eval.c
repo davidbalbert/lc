@@ -35,9 +35,16 @@ struct Header {
     size_t size; // size in multiples of sizeof(Header)
 };
 
+typedef struct Root Root;
+struct Root {
+    Header *h;
+    Root *next;
+};
+
 Header base; // initialized to zero
-Header *freep = &base;
-Header *usedp;
+Header *freep = &base; // circular linked list
+Header *usedp;         // circular linked list
+Root *roots;           // non-circular
 void *stacktop;
 
 void
@@ -49,34 +56,72 @@ gcinit0(void)
 #define gcinit() do { void *x; stacktop = &x; gcinit0(); } while(0)
 
 void
+gcroot(void *p)
+{
+    Header *h = (Header *)p-1;
+    Root *r = xalloc(sizeof(Root));
+
+    r->h = h;
+    r->next = roots;
+    roots = r;
+}
+
+void
 gcmark(void *p)
 {
 }
 
 void
+gcmarkall(void)
+{
+
+}
+
+void
 gcsweep(void)
 {
+
 }
 
 void
 gc()
 {
+    gcmarkall();
+    gcsweep();
+}
+
+void
+gcfree(Header *h)
+{
+    Header *p = freep;
+
+    while (1) {
+        if (p <= h && p->next >= h+h->size) {
+            // if h abuts p->next, merge them
+            if (h+h->size == p->next) {
+                h->size += p->next->size;
+                h->next = p->next->next;
+            } else {
+                h->next = p->next;
+            }
+
+            // if p abuts h, merge them too
+            if (p+p->size == h) {
+                p->size += h->size;
+                p->next = h->next;
+            } else {
+                p->next = h;
+            }
+
+            freep = p;
+            return;
+        }
+
+        p = p->next;
+    }
 }
 
 #define MIN_ALLOC 4096
-
-void
-gcfree(Header *p)
-{
-    // iterate across the free list to find a place where this will go
-    // once we find it, if it's contiguous with prev, merge it with prev
-    // if it's contiguous with prev->next merge it with prev->next
-
-    Header *h;
-
-    //
-
-}
 
 void
 gcmore(size_t size)
@@ -87,7 +132,11 @@ gcmore(size_t size)
 
     assert(size%sizeof(Header) == 0);
 
+    // we may need to use aligned_alloc here
     Header *p = xalloc(size);
+
+    assert((uintptr_t)p % sizeof(Header) == 0);
+
     gcfree(p);
 }
 
@@ -1370,6 +1419,7 @@ main(int argc, char *argv[])
     gcinit();
 
     globals = clone(NULL);
+    gcroot(globals);
 
     symbol(t); t = s_t; // return t seems more ergonomic and clear than return s_t
     def(t, t, globals);
