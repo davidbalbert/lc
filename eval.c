@@ -55,6 +55,7 @@ gcinit0(void)
 
 #define gcinit() do { void *x; stacktop = &x; gcinit0(); } while(0)
 
+// TOOD: gcroot won't work for symtab, because intern does; symtab = cons("foo", symtab)
 void
 gcroot(void *p)
 {
